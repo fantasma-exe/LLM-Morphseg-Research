@@ -1,0 +1,11 @@
+rsync -avz \
+    --exclude '.venv' \
+    --exclude '__pycache__' \
+    --exclude 'how_to_rsync.txt' \
+    --exclude '.vscode' \
+    --exclude '.gitignore' \
+    --exclude '.git' \
+    --exclude 'tikhonov.zip' \
+    --exclude 'tikhonov' \
+    -e "ssh -i ~/.ssh/llm_key" \
+    ./ fomin@10.5.0.205:/home/fomin/sci-pr/

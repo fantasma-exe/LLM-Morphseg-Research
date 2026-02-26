@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE settings
+.vscode/
+.idea/
+
+# ML Data
+data/
+outputs/
+checkpoints/
+mlruns/
+*.pt
+*.pth
+*.bin
+
+# Local data
+tikhonov.zip

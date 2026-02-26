@@ -1,0 +1,15 @@
+defaults: 
+  - _self_
+  - model: tiny-llama
+  - training: default
+  - lora: rora_base
+
+project_name: "llm-morphseg"
+experiment_name: "initial_test"
+
+paths:
+  train_data: "data/train.json"
+  output_dir: "outputs/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S}"
+
+logging:
+  mlflow_uri: "http://localhost:5000"

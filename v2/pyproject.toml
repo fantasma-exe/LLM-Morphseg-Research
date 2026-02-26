@@ -1,0 +1,17 @@
+[project]
+name = "v2"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bitsandbytes>=0.49.2",
+    "datasets>=4.5.0",
+    "hydra-core>=1.3.2",
+    "mlflow>=3.10.0",
+    "omegaconf>=2.3.0",
+    "peft>=0.18.1",
+    "pytorch-lightning>=2.6.1",
+    "torch>=2.10.0",
+    "transformers>=5.2.0",
+]

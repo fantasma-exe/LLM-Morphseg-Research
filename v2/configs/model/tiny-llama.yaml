@@ -1,0 +1,5 @@
+name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+trust_remote_code: true
+use_4bit: true
+compute_dtype: "bfloat16"
+device_map: "auto"
