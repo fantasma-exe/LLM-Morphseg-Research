@@ -1,0 +1,2 @@
+_target_:  src.inference.input.file_input.FileInput
+file_path: "data/test_words.txt"
