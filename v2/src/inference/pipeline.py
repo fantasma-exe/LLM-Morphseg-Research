@@ -1,10 +1,9 @@
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 from input import BaseInput
 from output import BaseOutput
 from predictor import Predictor
-from dataset import InferenceDataset
 
 
 class InferencePipeline:
@@ -17,26 +16,37 @@ class InferencePipeline:
 
     Parameters
     ----------
+    inference_dataset: torch Dataset
+        Dataset containing prompts for inference. Each item represents a
+        formatted prompt corresponding to a single input word and is used
+        as input for the predictor.
+
     input_strategy : BaseInput
         Strategy for reading input data (e.g., from file or console).
+
     output_strategy : BaseOutput
         Strategy for saving or displaying output results (e.g., file or console).
+
     predictor : Predictor
         Predictor object used to generate model outputs from prompts.
+
     prompt_template : str
         Template string for generating prompts from input words.
+
     dataloader_kwargs : dict
         Additional keyword arguments for the PyTorch DataLoader.
     """
 
     def __init__(
         self,
+        inference_dataset: Dataset,
         input_strategy: BaseInput,
         output_strategy: BaseOutput,
         predictor: Predictor,
         prompt_template: str,
         dataloader_kwargs: dict,
     ) -> None:
+        self.inference_dataset = inference_dataset
         self.input_strategy = input_strategy
         self.output_strategy = output_strategy
         self.predictor = predictor
@@ -65,15 +75,13 @@ class InferencePipeline:
             print("-- No data for inference --")
             return
 
-        dataset = InferenceDataset(words, self.prompt_template)
-
         def collate_fn(batch):
             batch_words = [item[0] for item in batch]
             batch_prompts = [item[1] for item in batch]
             return batch_words, batch_prompts
 
         dataloader = DataLoader(
-            dataset, collate_fn=collate_fn, **self.dataloader_kwargs
+            self.inference_dataset, collate_fn=collate_fn, **self.dataloader_kwargs
         )
 
         all_words = []

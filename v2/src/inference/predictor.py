@@ -17,8 +17,10 @@ class Predictor:
     ----------
     model_cfg : DictConfig
         Configuration used to instantiate the model.
+
     checkpoint_path : str
         Path to the model checkpoint file.
+
     tokenizer : PreTrainedTokenizer
         Tokenizer corresponding to the model.
     """

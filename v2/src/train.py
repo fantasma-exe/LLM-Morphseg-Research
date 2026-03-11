@@ -5,26 +5,26 @@ import pytorch_lightning as L
 from omegaconf import DictConfig, OmegaConf
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="config")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="train")
 def train(cfg: DictConfig) -> None:
     """
-    Train a PyTorch Lightning model using Hydra configuration.
+    Train a PyTorch Lightning model using a Hydra configuration.
 
-    This function initializes the model, datamodule, logger, and callbacks
-    based on the provided configuration, then trains the model using a
-    Lightning Trainer.
+    The function instantiates the model, datamodule, logger, and callbacks
+    from the configuration, then runs training via a Lightning Trainer.
 
     Parameters
     ----------
     cfg : DictConfig
-        Hydra configuration containing sections for the model, datamodule,
-        logger, callbacks, trainer, and training settings.
+        Hydra configuration object describing the training setup.
+        The expected configuration structure and available options are
+        defined in ``configs/train.yaml``.
 
     Notes
     -----
-    - The function prints the full configuration in YAML format at startup.
-    - If `cfg.training.resume_from_checkpoint` is set, training will resume
-      from the specified checkpoint.
+    - Prints the resolved configuration in YAML format at startup.
+    - If a checkpoint path is specified in the configuration, training
+      resumes from that checkpoint.
     """
     print(OmegaConf.to_yaml(cfg))
 

@@ -1,0 +1,22 @@
+defaults:
+  - _self_
+  - inference/dataset:  morphology_dataset
+  - inference/input:    file
+  - inference/output:   file
+  - datamodule:         morphology_json
+  - model:              morphseg_module
+  - training:           run_params
+
+
+inference/pipeline:
+  _target_:             src.inference.pipeline.InferencePipeline
+  prompt_template:      ${datamodule.prompt_template}
+  dataloader_kwargs:
+    batch_size:         16
+    num_workers:        4
+    pin_memory:         true
+
+inference/predictor:
+  _target_:             src.inference.predictor.Predictor
+  model_cfg:            ${model}
+  checkpoint_path:      ${training.resume_from_checkpoint}

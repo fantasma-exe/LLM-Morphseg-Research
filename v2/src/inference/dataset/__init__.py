@@ -1,1 +1,3 @@
-from .text_dataset import InferenceDataset
+from .morphology_dataset import MorphologyInferenceDataset
+
+__all__ = ["MorphologyInferenceDataset"]

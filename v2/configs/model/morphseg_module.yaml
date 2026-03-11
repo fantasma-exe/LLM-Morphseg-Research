@@ -1,4 +1,4 @@
-_target_: src.model.llm_module.MorphSegModule
+_target_:            src.model.morphseg_lightning.MorphSegModule
 
 cfg:
   model_name:        "meta-llama/Meta-Llama-3-8B"
@@ -8,26 +8,26 @@ cfg:
 
 
 optimizer:
-  _target_:     bitsandbytes.optim.PagedAdamW8bit
-  lr:           2e-4
-  weight_decay: 0.01
+  _target_:          bitsandbytes.optim.PagedAdamW8bit
+  lr:                2e-4
+  weight_decay:      0.01
 
 scheduler:
-  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-  T_max:    10
+  _target_:          torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max:             10
 
 scheduler_config:
-  interval:  epoch
-  frequency: 1
+  interval:          epoch
+  frequency:         1
 
 lora:
-  r:       16
-  alpha:   32
-  dropout: 0.05
+  r:                 16
+  alpha:             32
+  dropout:           0.05
   target_modules:
     - "q_proj"
     - "k_proj"
     - "v_proj"
     - "o_proj"
-  bias:      "none"
-  task_type: "CAUSAL_ML"
+  bias:              "none"
+  task_type:         "CAUSAL_ML"

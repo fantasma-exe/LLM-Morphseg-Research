@@ -4,28 +4,27 @@ from omegaconf import DictConfig, OmegaConf
 from transformers import AutoTokenizer
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="config")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="predict")
 def predict(cfg: DictConfig) -> None:
     """
-    Run an inference pipeline using a Hydra configuration.
+    Run the inference pipeline defined in the Hydra configuration.
 
-    This function sets up the tokenizer, initializes the inference pipeline
-    with specified input and output strategies, and executes the pipeline.
+    The function initializes the tokenizer, instantiates the inference
+    pipeline via Hydra, and executes it. Input and output handling are
+    delegated to configurable strategies defined in the inference config.
 
     Parameters
     ----------
     cfg : DictConfig
-        Hydra configuration containing model and inference settings, including:
-        - `cfg.model.cfg.model_name`: Name or path of the pre-trained model.
-        - `cfg.inference.pipeline`: Pipeline configuration for inference.
-        - `cfg.inference.input`: Input strategy configuration.
-        - `cfg.inference.output`: Output strategy configuration.
+        Hydra configuration object for the inference run. The expected
+        configuration structure and available options are defined in
+        ``configs/predict.yaml``.
 
     Notes
     -----
-    - Prints the inference configuration in YAML format.
-    - Ensures that the tokenizer has a `pad_token`; if not, it is set to
-      the `eos_token`.
+    - Prints the resolved inference configuration in YAML format.
+    - Ensures that the tokenizer has a ``pad_token``. If it is not set,
+      the ``eos_token`` is used instead.
     """
     print(OmegaConf.to_yaml(cfg.inference))
 
@@ -35,6 +34,7 @@ def predict(cfg: DictConfig) -> None:
 
     pipeline = hydra.utils.instantiate(
         cfg.inference.pipeline,
+        inference_cfg=cfg.inference,
         input_strategy=cfg.inference.input,
         output_strategy=cfg.inference.output,
         predictor={"tokenizer": tokenizer},

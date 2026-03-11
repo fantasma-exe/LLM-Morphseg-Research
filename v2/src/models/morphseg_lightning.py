@@ -24,36 +24,25 @@ class MorphSegModule(L.LightningModule):
 
     The module loads a pretrained transformer model from Hugging Face,
     optionally applies 4-bit quantization via BitsAndBytes, prepares the model
-    for k-bit training, and injects LoRA adapters using PEFT.
-
-    Optimizer and scheduler are instantiated through Hydra configuration.
+    for k-bit training, and injects LoRA adapters using PEFT. Optimizer and
+    scheduler are instantiated via Hydra configuration.
 
     Parameters
     ----------
     cfg : DictConfig
-        Configuration for the base model and training setup. Expected fields include:
-
-        - name : str
-            Hugging Face model identifier or local path.
-        - use_4bit : bool
-            Whether to enable 4-bit quantization.
-        - bf16 : bool
-            Whether to use bfloat16 precision.
-        - trust_remote_code : bool
-            Whether to allow execution of remote model code.
-        - lora : dict
-            Parameters for `peft.LoraConfig`.
+        Hydra configuration describing the model setup. The expected structure
+        and available options are defined in
+        ``configs/model/morphseg_lightning.yaml``.
 
     optimizer : DictConfig
-        Hydra configuration describing the optimizer. Must contain `_target_`
-        pointing to the optimizer class.
+        Hydra configuration used to instantiate the optimizer.
 
     scheduler : DictConfig
-        Hydra configuration describing the learning rate scheduler.
+        Hydra configuration used to instantiate the learning rate scheduler.
 
     scheduler_config : DictConfig
-        Additional Lightning scheduler configuration (e.g. `interval`, `frequency`,
-        `monitor`).
+        Additional Lightning scheduler configuration (e.g. interval, frequency,
+        monitor).
 
     Attributes
     ----------

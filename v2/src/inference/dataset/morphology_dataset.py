@@ -1,7 +1,7 @@
 from torch.utils.data import Dataset
 
 
-class InferenceDataset(Dataset):
+class MorphologyInferenceDataset(Dataset):
     """
     Dataset that generates prompts for inference from a list of words.
 
@@ -13,6 +13,7 @@ class InferenceDataset(Dataset):
     ----------
     words : list of str
         A list of input words used to construct prompts.
+
     prompt_template : str
         A template string used to generate prompts. The template must
         contain a placeholder for the word (e.g., `"Translate: {}"`).

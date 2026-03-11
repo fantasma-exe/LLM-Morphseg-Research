@@ -25,6 +25,7 @@ class FileOutput(BaseOutput):
         ----------
         inputs : list of str
             The original input strings.
+
         predictions : list of str
             The predicted strings corresponding to each input.
         """

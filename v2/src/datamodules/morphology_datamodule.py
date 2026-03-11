@@ -11,49 +11,44 @@ from transformers import (
 )
 
 
-class BaseDataModule(L.LightningDataModule):
+class MorphologyDataModule(L.LightningDataModule):
     """
-    PyTorch Lightning data module for morphological segmentation training.
+    PyTorch Lightning DataModule for morphological segmentation training.
 
-    The module loads a JSON dataset, converts each example into a prompt for
-    instruction-style language model training, tokenizes the prompt using a
-    Hugging Face tokenizer, and constructs a training DataLoader.
+    Loads a JSON dataset, converts each example into an instruction-style prompt
+    for language model training, tokenizes the prompt using a Hugging Face
+    tokenizer, and provides PyTorch DataLoaders for training and validation.
 
-    The data pipeline follows the Hydra configuration pattern, where
-    tokenizer, collator, dataset paths, and training parameters are defined
-    in configuration files.
+    The data pipeline follows the Hydra configuration pattern, where dataset
+    paths, preprocessing parameters, collator, and DataLoader settings are
+    defined in configuration files.
 
     Parameters
     ----------
     cfg : DictConfig
-        Hydra configuration describing dataset paths, preprocessing and
-        dataloader parameters. Expected structure:
-
-        - paths.train_path : str
-            Path to JSON dataset.
-        - training.batch_size : int
-            Training batch size.
-        - training.max_seq_length : int
-            Maximum sequence length during tokenization.
-        - collator : DictConfig
-            Hydra config for data collator.
+        Hydra configuration describing the dataset and dataloader setup.
+        The expected configuration structure and available options are defined
+        in ``configs/datamodules/morphology_datamodule.yaml``.
 
     tokenizer : PreTrainedTokenizer
         Hugging Face tokenizer used to tokenize prompts.
 
     Attributes
     ----------
-    _cfg : DictConfig
-        Data configuration.
+    cfg : DictConfig
+        Configuration object used for dataset, tokenizer, collator, and dataloader.
 
-    _tokenizer : PreTrainedTokenizer
+    tokenizer : PreTrainedTokenizer
         Tokenizer used for text preprocessing.
 
-    _data_collator : Callable
+    data_collator : Callable
         Batch collation function instantiated via Hydra.
 
-    _train_dataset : datasets.Dataset
+    train_dataset : datasets.Dataset
         Tokenized training dataset.
+
+    val_dataset : datasets.Dataset, optional
+        Tokenized validation dataset (if a validation split is provided).
     """
 
     def __init__(

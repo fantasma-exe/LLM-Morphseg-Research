@@ -1,8 +1,8 @@
-_target_: src.datamodules.base.BaseDataModule
+_target_:             src.datamodules.morphology_datamodule.MorphologyDataModule
 
 paths:
-  train_data: "data/train.json"
-  val_data:   "data/val.json"
+  train_data:         "data/train.json"
+  val_data:           "data/val.json"
 
 prompt_template: |
   ### Инструкция:
@@ -20,9 +20,9 @@ tokenizer_kwargs:
   add_special_tokens: true
 
 dataloader_kwargs:
-  batch_size:  4,
-  shuffle:     true,
-  pin_memory:  true,
-  num_workers: 4
+  batch_size:         4,
+  shuffle:            true,
+  pin_memory:         true,
+  num_workers:        4
 
-num_proc: 4
+num_proc:             4
