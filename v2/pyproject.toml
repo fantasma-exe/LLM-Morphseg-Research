@@ -1,9 +1,9 @@
 [project]
 name = "v2"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Second-generation pipeline for morphological segmentation with improved prompting and evaluation"
 requires-python = ">=3.13"
+
 dependencies = [
     "bitsandbytes>=0.49.2",
     "datasets>=4.5.0",

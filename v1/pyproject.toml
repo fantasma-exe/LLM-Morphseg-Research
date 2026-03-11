@@ -1,9 +1,8 @@
 [project]
-name = "llm-finetune-pipeline"
+name = "v1"
 version = "0.1.0"
 
-description = "morpheme-segmentation"
-readme = "README.md"
+description = "Baseline pipeline for morphological segmentation using prompting with large language models"
 requires-python = ">=3.13"
 dependencies = [
     "torch>=2.4.0",

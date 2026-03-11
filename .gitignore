@@ -23,6 +23,7 @@ mlruns/
 *.pt
 *.pth
 *.bin
+*.safetensors
 
 # Local data
 tikhonov.zip

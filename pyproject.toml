@@ -1,0 +1,15 @@
+[project]
+name = "morphseg-monorepo"
+version = "0.1.0"
+description = "Research project exploring the use of large language models for morphological segmentation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["v1", "v2"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.5",
+]
