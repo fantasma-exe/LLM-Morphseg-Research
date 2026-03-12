@@ -1,4 +1,4 @@
-from base import BaseOutput
+from .base import BaseOutput
 
 
 class ConsoleOutput(BaseOutput):

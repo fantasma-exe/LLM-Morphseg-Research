@@ -1,11 +1,4 @@
 defaults:
   - _self_
   - predict
-
-inference:
-  input:
-    file_path:     "tests/data/test_words.txt"
-  pipeline:
-    dataloader_kwargs:
-      batch_size:  1
-      num_workers: 0
+  - override inference/input: debug

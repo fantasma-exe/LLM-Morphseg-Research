@@ -1,6 +1,6 @@
 import os
 
-from base import BaseInput
+from .base import BaseInput
 
 
 class FileInput(BaseInput):
@@ -37,5 +37,5 @@ class FileInput(BaseInput):
         if not os.path.exists(self.input_path):
             raise FileNotFoundError()
 
-        with open(self.input_path, "r", encoding="uft-8") as f:
+        with open(self.input_path, "r", encoding="utf-8") as f:
             return [line.strip() for line in f]

@@ -1,1 +1,1 @@
-_target_: src.inference.output.console_output.ConsoleOutput
+_target_: morphseg.inference.output.ConsoleOutput

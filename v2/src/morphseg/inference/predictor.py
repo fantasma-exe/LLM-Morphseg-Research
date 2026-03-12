@@ -33,10 +33,16 @@ class Predictor:
     ) -> None:
         self.tokenizer = tokenizer
 
-        self.model = hydra.utils.instantiate(model_cfg, tokenizer=self.tokenizer)
+        self.model = hydra.utils.instantiate(
+            model_cfg, tokenizer=self.tokenizer, _recursive_=False
+        )
 
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        self.model.load_state_dict(checkpoint["state_dict"])
+        ch_pth = None
+        with open(checkpoint_path, "r", encoding="utf-8") as f:
+            ch_pth = f.read()
+
+        checkpoint = torch.load(ch_pth, map_location="cpu", weights_only=False)
+        self.model.load_state_dict(checkpoint["state_dict"], strict=False)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -64,7 +70,7 @@ class Predictor:
         ).to(self.device)
 
         with torch.no_grad():
-            outputs = self.model.generate(
+            outputs = self.model.model.generate(
                 **inputs,
                 max_new_tokens=64,
                 eos_token_id=self.tokenizer.eos_token_id,

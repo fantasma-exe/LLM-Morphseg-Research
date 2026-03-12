@@ -1,1 +1,2 @@
-_target_: src.inference.dataset.morphology_dataset.MorphologyInferenceDataset
+_target_:    morphseg.inference.dataset.MorphologyInferenceDataset
+_partial_:   true

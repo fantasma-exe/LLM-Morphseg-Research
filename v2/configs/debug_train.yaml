@@ -1,19 +1,7 @@
 defaults:
   - _self_
   - train
-
-datamodule:
-  paths:
-    train_path:        "tests/data/train_sample.json"
-    val_path:          "tests/data/train_sample.json"
-
-trainer:
-  max_epochs:          1
-  limit_train_batches: 2
-  limit_val_batches:   1
-  accelerator:        "cpu"
-  devices:             1
-
-logger:
-  _target_:            pytorch_lightning.loggers.CSVLogger
-  save_dir:            "logs/debug_logs"
+  - override logger:     csv
+  - override datamodule: debug
+  - override trainer:    debug
+  - override model:      debug

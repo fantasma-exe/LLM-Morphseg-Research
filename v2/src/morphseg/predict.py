@@ -4,7 +4,7 @@ from omegaconf import DictConfig, OmegaConf
 from transformers import AutoTokenizer
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="predict")
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="predict")
 def predict(cfg: DictConfig) -> None:
     """
     Run the inference pipeline defined in the Hydra configuration.
@@ -26,18 +26,15 @@ def predict(cfg: DictConfig) -> None:
     - Ensures that the tokenizer has a ``pad_token``. If it is not set,
       the ``eos_token`` is used instead.
     """
-    print(OmegaConf.to_yaml(cfg.inference))
+    print(OmegaConf.to_yaml(cfg))
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.cfg.model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-
+    # где взять аргументы для inferencedataset?
     pipeline = hydra.utils.instantiate(
-        cfg.inference.pipeline,
-        inference_cfg=cfg.inference,
-        input_strategy=cfg.inference.input,
-        output_strategy=cfg.inference.output,
-        predictor={"tokenizer": tokenizer},
+        cfg.pipeline,
+        predictor={"tokenizer": tokenizer, "checkpoint_path": cfg.ckpt_path},
     )
 
     pipeline.run()

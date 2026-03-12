@@ -15,55 +15,60 @@ class MorphologyDataModule(L.LightningDataModule):
     """
     PyTorch Lightning DataModule for morphological segmentation training.
 
-    Loads a JSON dataset, converts each example into an instruction-style prompt
-    for language model training, tokenizes the prompt using a Hugging Face
-    tokenizer, and provides PyTorch DataLoaders for training and validation.
-
-    The data pipeline follows the Hydra configuration pattern, where dataset
-    paths, preprocessing parameters, collator, and DataLoader settings are
-    defined in configuration files.
+    Loads a JSON dataset, converts each example into an instruction-style prompt,
+    tokenizes the text, and provides PyTorch DataLoaders.
 
     Parameters
     ----------
-    cfg : DictConfig
-        Hydra configuration describing the dataset and dataloader setup.
-        The expected configuration structure and available options are defined
-        in ``configs/datamodules/morphology_datamodule.yaml``.
-
     tokenizer : PreTrainedTokenizer
         Hugging Face tokenizer used to tokenize prompts.
 
-    Attributes
-    ----------
-    cfg : DictConfig
-        Configuration object used for dataset, tokenizer, collator, and dataloader.
+    paths : dict
+        Dictionary containing 'train_data' and 'val_data' file paths.
 
-    tokenizer : PreTrainedTokenizer
-        Tokenizer used for text preprocessing.
+    prompt_template : str
+        String template for the instruction prompt (must contain {word}).
 
-    data_collator : Callable
-        Batch collation function instantiated via Hydra.
+    dataloader_kwargs : dict
+        Keyword arguments passed to the DataLoader (batch_size, num_workers, etc.).
 
-    train_dataset : datasets.Dataset
-        Tokenized training dataset.
+    tokenizer_kwargs : dict
+        Keyword arguments for the tokenizer (max_length, padding, etc.).
 
-    val_dataset : datasets.Dataset, optional
-        Tokenized validation dataset (if a validation split is provided).
+    num_proc : int, optional
+        Number of processes for data processing, by default 1.
+
+    collator_cfg : DictConfig, optional
+        Hydra configuration for the data collator. If None, a default setup
+        should be handled manually.
     """
 
     def __init__(
         self,
-        cfg: DictConfig,
         tokenizer: PreTrainedTokenizer,
+        paths: DictConfig,
+        prompt_template: str,
+        dataloader_kwargs: DictConfig,
+        tokenizer_kwargs: DictConfig,
+        num_proc: int = 1,
+        collator_cfg: DictConfig | None = None,
     ) -> None:
         super().__init__()
+        self.save_hyperparameters(ignore=["tokenizer"])
 
-        self.cfg = cfg
         self.tokenizer = tokenizer
+        self.paths = paths
+        self.prompt_template = prompt_template
+        self.dataloader_kwargs = dataloader_kwargs
+        self.tokenizer_kwargs = tokenizer_kwargs
+        self.num_proc = num_proc
 
-        self.data_collator = hydra.utils.instantiate(
-            cfg.collator, tokenizer=self.tokenizer
-        )
+        if collator_cfg:
+            self.data_collator = hydra.utils.instantiate(
+                collator_cfg, tokenizer=self.tokenizer
+            )
+        else:
+            self.data_collator = None
 
     def _build_prompt(self, word: str, answer: str | None = None) -> str:
         """
@@ -85,7 +90,7 @@ class MorphologyDataModule(L.LightningDataModule):
         str
             Formatted instruction prompt.
         """
-        template = self.cfg.prompt_template
+        template = self.prompt_template
         prompt = template.format(word=word)
 
         if answer is not None:
@@ -111,11 +116,11 @@ class MorphologyDataModule(L.LightningDataModule):
         None
         """
 
-        data_files = {"train": self.cfg.path.train_path}
+        data_files = {"train": self.paths.train_path}
 
-        val_path = self.cfg.paths.get("val_path")
+        val_path = self.paths.get("val_path")
         if val_path:
-            data_files["val"] = self.cfg.path.val_path
+            data_files["val"] = self.paths.val_path
 
         dataset = load_dataset("json", data_files=data_files)
 
@@ -141,7 +146,7 @@ class MorphologyDataModule(L.LightningDataModule):
 
             prompt = self._build_prompt(example["input"], example["output"])
 
-            outputs = self.tokenizer(prompt, **self.cfg.tokenizer_kwargs)
+            outputs = self.tokenizer(prompt, **self.tokenizer_kwargs)  # type: ignore
 
             outputs["labels"] = outputs["input_ids"].copy()  # type: ignore
 
@@ -151,7 +156,7 @@ class MorphologyDataModule(L.LightningDataModule):
             tokenize_function,
             remove_columns=dataset["train"].column_names,
             desc="Tokenizing train dataset",
-            num_proc=self.cfg.get("num_proc", 1),
+            num_proc=self.num_proc,
         )
 
         if "val" in dataset:
@@ -159,7 +164,7 @@ class MorphologyDataModule(L.LightningDataModule):
                 tokenize_function,
                 remove_columns=dataset["val"].column_names,
                 desc="Tokenizing val dataset",
-                num_proc=self.cfg.get("num_proc", 1),
+                num_proc=self.num_proc,
             )
 
     def train_dataloader(self) -> DataLoader:
@@ -175,7 +180,7 @@ class MorphologyDataModule(L.LightningDataModule):
         return DataLoader(
             self.train_dataset,  # type: ignore
             collate_fn=self.data_collator,
-            **self.cfg.dataloader_kwargs,
+            **self.dataloader_kwargs,  # type: ignore
         )
 
     def val_dataloader(self) -> DataLoader | None:
@@ -194,5 +199,5 @@ class MorphologyDataModule(L.LightningDataModule):
         return DataLoader(
             self.val_dataset,  # type: ignore
             collate_fn=self.data_collator,
-            **self.cfg.dataloader_kwargs,
+            **self.dataloader_kwargs,  # type: ignore
         )

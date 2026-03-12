@@ -1,18 +1,18 @@
-import torch
 import hydra
+import torch
 
-import typing as tp
 import pytorch_lightning as L
+import typing as tp
 
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedTokenizer
 from omegaconf import DictConfig
-from peft import prepare_model_for_kbit_training, LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedTokenizer
 
-from utils.metrics import (
-    morpheme_precision,
-    morpheme_f1,
-    morpheme_recall,
+from morphseg.utils import (
     char_accuracy,
+    morpheme_f1,
+    morpheme_precision,
+    morpheme_recall,
     word_accuracy,
 )
 
@@ -89,7 +89,7 @@ class MorphSegModule(L.LightningModule):
             )
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=cfg.name,
+            pretrained_model_name_or_path=cfg.model_name,
             quantization_config=bnb_cfg,
             trust_remote_code=cfg.trust_remote_code,
             torch_dtype=torch.bfloat16 if cfg.bf16 else torch.float32,
@@ -200,8 +200,8 @@ class MorphSegModule(L.LightningModule):
 
         generated_ids = self.model.generate(
             input_ids=input_ids,
-            attention=batch["attention_mash"],
-            max_new_token=64,
+            attention_mask=batch["attention_mask"],
+            max_new_tokens=64,
             pad_token_id=self.tokenizer.pad_token_id,
             eos_token_id=self.tokenizer.eos_token_id,
         )
@@ -258,7 +258,6 @@ class MorphSegModule(L.LightningModule):
             Dictionary compatible with PyTorch Lightning optimizer configuration.
             Contains instantiated optimizer and learning rate scheduler.
         """
-
         optimizer = hydra.utils.instantiate(
             self.optimizer_cfg,
             params=self.parameters(),
