@@ -1,8 +1,8 @@
 _target_:             morphseg.datamodules.MorphologyDataModule
 
 paths:
-  train_path:         "data/train.jsonl"
-  val_path:           "data/val.jsonl"
+  train_path:         data/train.jsonl
+  val_path:           data/val.jsonl
 
 prompt_template: |
   ### Инструкция:

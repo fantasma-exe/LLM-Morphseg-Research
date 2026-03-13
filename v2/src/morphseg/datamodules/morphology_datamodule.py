@@ -23,16 +23,16 @@ class MorphologyDataModule(L.LightningDataModule):
     tokenizer : PreTrainedTokenizer
         Hugging Face tokenizer used to tokenize prompts.
 
-    paths : dict
+    paths : DictConfig
         Dictionary containing 'train_data' and 'val_data' file paths.
 
     prompt_template : str
         String template for the instruction prompt (must contain {word}).
 
-    dataloader_kwargs : dict
+    dataloader_kwargs : DictConfig
         Keyword arguments passed to the DataLoader (batch_size, num_workers, etc.).
 
-    tokenizer_kwargs : dict
+    tokenizer_kwargs : DictConfig
         Keyword arguments for the tokenizer (max_length, padding, etc.).
 
     num_proc : int, optional

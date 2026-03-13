@@ -1,0 +1,2 @@
+_target_:        morphseg.inference.loaders.LocalCheckpointLoader
+checkpoint_path: checkpoints/debug/debug_ckpt.ckpt

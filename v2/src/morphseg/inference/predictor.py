@@ -37,11 +37,7 @@ class Predictor:
             model_cfg, tokenizer=self.tokenizer, _recursive_=False
         )
 
-        ch_pth = None
-        with open(checkpoint_path, "r", encoding="utf-8") as f:
-            ch_pth = f.read()
-
-        checkpoint = torch.load(ch_pth, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         self.model.load_state_dict(checkpoint["state_dict"], strict=False)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

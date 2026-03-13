@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .base import BaseOutput
 
 
@@ -15,7 +17,8 @@ class FileOutput(BaseOutput):
         output_path : str
             Path to the file where the results will be saved.
         """
-        self.output_path = output_path
+        self.output_path = Path(output_path)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, inputs: list[str], predictions: list[str]) -> None:
         """

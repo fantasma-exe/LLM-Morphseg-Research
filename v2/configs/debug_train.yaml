@@ -5,3 +5,4 @@ defaults:
   - override datamodule: debug
   - override trainer:    debug
   - override model:      debug
+  - override callbacks:  debug_hooks

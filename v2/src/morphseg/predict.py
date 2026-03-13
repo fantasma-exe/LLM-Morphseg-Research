@@ -28,13 +28,18 @@ def predict(cfg: DictConfig) -> None:
     """
     print(OmegaConf.to_yaml(cfg))
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.cfg.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model.pretrained.model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    # где взять аргументы для inferencedataset?
+
+    ckpt_loader = hydra.utils.instantiate(cfg.inference.loader)
+
     pipeline = hydra.utils.instantiate(
         cfg.pipeline,
-        predictor={"tokenizer": tokenizer, "checkpoint_path": cfg.ckpt_path},
+        predictor={
+            "checkpoint_path": ckpt_loader.download_checkpoint(),
+            "tokenizer": tokenizer,
+        },
     )
 
     pipeline.run()

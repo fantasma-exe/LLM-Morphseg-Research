@@ -4,7 +4,7 @@ import torch
 import pytorch_lightning as L
 import typing as tp
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedTokenizer
 
@@ -20,19 +20,24 @@ from morphseg.utils import (
 class MorphSegModule(L.LightningModule):
     """
     PyTorch Lightning module for training a causal language model with optional
-    4-bit quantization and LoRA parameter-efficient fine-tuning.
+    quantization and LoRA parameter-efficient fine-tuning.
 
-    The module loads a pretrained transformer model from Hugging Face,
-    optionally applies 4-bit quantization via BitsAndBytes, prepares the model
-    for k-bit training, and injects LoRA adapters using PEFT. Optimizer and
-    scheduler are instantiated via Hydra configuration.
+    The module loads a pretrained transformer model from Hugging Face, optionally
+    applies quantization using BitsAndBytes, prepares the model for k-bit training
+    when required, and injects LoRA adapters using PEFT. Optimizer and scheduler
+    are instantiated from Hydra configuration during training.
 
     Parameters
     ----------
-    cfg : DictConfig
-        Hydra configuration describing the model setup. The expected structure
-        and available options are defined in
-        ``configs/model/morphseg_lightning.yaml``.
+    pretrained : DictConfig
+        Hydra configuration describing how the base Hugging Face model should be
+        loaded (e.g. model name, dtype, trust_remote_code flag).
+
+    quantization : DictConfig | None
+        Optional configuration used to construct a ``BitsAndBytesConfig`` that
+        controls model quantization. If enabled, this configuration is passed to
+        ``AutoModelForCausalLM.from_pretrained``. If disabled or ``None``, the
+        model is loaded without quantization.
 
     optimizer : DictConfig
         Hydra configuration used to instantiate the optimizer.
@@ -44,13 +49,17 @@ class MorphSegModule(L.LightningModule):
         Additional Lightning scheduler configuration (e.g. interval, frequency,
         monitor).
 
+    lora : DictConfig
+        Configuration for PEFT LoRA adapters (rank, alpha, dropout, target modules,
+        etc.).
+
+    tokenizer : PreTrainedTokenizer
+        Hugging Face tokenizer used for preprocessing and generation.
+
     Attributes
     ----------
     model : torch.nn.Module
         The underlying Hugging Face causal language model with LoRA adapters applied.
-
-    cfg : DictConfig
-        Model configuration.
 
     optimizer_cfg : DictConfig
         Hydra configuration used to instantiate the optimizer.
@@ -64,7 +73,8 @@ class MorphSegModule(L.LightningModule):
 
     def __init__(
         self,
-        cfg: DictConfig,
+        pretrained: DictConfig,
+        quantization: DictConfig | None,
         optimizer: DictConfig,
         scheduler: DictConfig,
         scheduler_config: DictConfig,
@@ -74,33 +84,45 @@ class MorphSegModule(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(logger=False)
 
-        self.cfg = cfg
         self.optimizer_cfg = optimizer
         self.scheduler_cfg = scheduler
         self.scheduler_config = scheduler_config
 
+        dtype_map = {
+            "bf16": torch.bfloat16,
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+        }
+
+        torch_dtype = dtype_map.get(pretrained.torch_dtype, torch.float32)
+
         bnb_cfg = None
-        if cfg.use_4bit:
-            bnb_cfg = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.bfloat16 if cfg.bf16 else torch.float32,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-            )
+        if quantization is not None and quantization.get("enabled", False):
+            quant_kwargs: dict[str, tp.Any] = OmegaConf.to_container(
+                quantization, resolve=True
+            )  # type: ignore
+            quant_kwargs.pop("enabled", None)
+
+            if "bnb_4bit_compute_dtype" in quant_kwargs:
+                quant_kwargs["bnb_4bit_compute_dtype"] = dtype_map[
+                    quant_kwargs["bnb_4bit_compute_dtype"]
+                ]
+
+            bnb_cfg = BitsAndBytesConfig(**quant_kwargs)
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=cfg.model_name,
+            pretrained_model_name_or_path=pretrained.model_name,
             quantization_config=bnb_cfg,
-            trust_remote_code=cfg.trust_remote_code,
-            torch_dtype=torch.bfloat16 if cfg.bf16 else torch.float32,
+            trust_remote_code=pretrained.trust_remote_code,
+            torch_dtype=torch_dtype,
         )
 
-        if cfg.use_4bit:
+        if bnb_cfg is not None:
             self.model = prepare_model_for_kbit_training(self.model)
 
         lora_cfg = LoraConfig(**lora)  # type: ignore
-
         self.model = get_peft_model(self.model, lora_cfg)
+
         self.tokenizer = tokenizer
         self.validation_step_outputs = []
 
@@ -247,6 +269,26 @@ class MorphSegModule(L.LightningModule):
         self.log_dict(metrics, prog_bar=True, sync_dist=True)
 
         self.validation_step_outputs.clear()
+
+    def on_save_checkpoint(self, checkpoint: dict[str, tp.Any]) -> None:
+        """
+        Modify the checkpoint before saving so that it contains only LoRA weights.
+
+        This hook filters the ``state_dict`` and keeps only parameters whose names
+        contain the substring ``"lora"``. All other model weights are removed.
+        As a result, the saved checkpoint stores only the LoRA adapter parameters,
+        which significantly reduces checkpoint size and allows later loading
+        on top of the base pretrained model.
+
+        Parameters
+        ----------
+        checkpoint : dict[str, Any]
+            The checkpoint dictionary created by PyTorch Lightning during saving.
+            The ``state_dict`` entry is modified in-place to keep only LoRA weights.
+        """
+        checkpoint["state_dict"] = {
+            k: v for k, v in checkpoint["state_dict"].items() if "lora" in k
+        }
 
     def configure_optimizers(self) -> tp.Any:
         """

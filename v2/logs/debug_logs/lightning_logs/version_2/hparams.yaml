@@ -15,9 +15,9 @@ prompt_template: '### Инструкция:
 
   '
 dataloader_kwargs:
-  batch_size: 4,
-  shuffle: true,
-  pin_memory: true,
+  batch_size: 4
+  shuffle: true
+  pin_memory: true
   num_workers: 4
 tokenizer_kwargs:
   truncation: true

@@ -5,14 +5,14 @@ defaults:
   - training:    run_params
   - trainer:     gpu_base
   - logger:      mlflow
-  - callbacks:    train_hooks
+  - callbacks:   train_hooks
 
 
-project_name:    "morph-seg-v2"
-experiment_name: "llama-tuning"
-run_name:        "${model.cfg.model_name}_lr${model.optimizer.lr}_bs${datamodule.dataloader_kwargs.batch_size}"
+project_name:    morph-seg-v2
+experiment_name: llama-tuning
+run_name:        ${model.pretrained.model_name}
 
 hydra:
   run:
-    dir:          outputs/${project_name}/${experiment_name}/${run_name}_${now:%H-%M-%S}
+    dir:          outputs/train/${project_name}/${experiment_name}/${run_name}_${now:%H-%M-%S}
 

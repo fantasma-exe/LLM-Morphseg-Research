@@ -1,6 +1,5 @@
 import hydra
 
-
 from omegaconf import DictConfig, OmegaConf
 from transformers import AutoTokenizer
 
@@ -28,7 +27,7 @@ def train(cfg: DictConfig) -> None:
     """
     print(OmegaConf.to_yaml(cfg))
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.cfg.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model.pretrained.model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -41,7 +40,6 @@ def train(cfg: DictConfig) -> None:
 
     callbacks = [hydra.utils.instantiate(cb) for cb in cfg.callbacks.values()]
 
-    print(OmegaConf.to_yaml(cfg.trainer))
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
@@ -53,13 +51,6 @@ def train(cfg: DictConfig) -> None:
         datamodule=datamodule,
         ckpt_path=cfg.training.resume_from_checkpoint,
     )
-
-    # Temporary solution to connect inference and train
-    best_path = trainer.checkpoint_callback.best_model_path
-    if best_path:
-        with open("last_best_ckpt.txt", "w") as f:
-            f.write(best_path)
-        print(f"Training finished. Best checkpoint saved at: {best_path}")
 
 
 if __name__ == "__main__":

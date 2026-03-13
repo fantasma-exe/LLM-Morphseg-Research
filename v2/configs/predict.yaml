@@ -3,10 +3,9 @@ defaults:
   - inference/dataset:  morphology
   - inference/input:    file
   - inference/output:   file
+  - inference/loader:   mlflow
   - datamodule:         morphology_json
   - model:              morphseg_module
-
-ckpt_path:              "last_best_ckpt.txt" 
 
 pipeline:
   _target_:             morphseg.inference.InferencePipeline
@@ -26,4 +25,11 @@ pipeline:
     _target_:           morphseg.inference.Predictor
     _recursive_:        false
     model_cfg:          ${model}
-    checkpoint_path:    ${ckpt_path}
+  
+project_name:           morph-seg-v2
+experiment_name:        llama-tuning
+run_name:               ${model.pretrained.model_name}
+
+hydra:
+  run:
+    dir:                  outputs/inference/${project_name}/${experiment_name}/${run_name}_${now:%H-%M-%S}
