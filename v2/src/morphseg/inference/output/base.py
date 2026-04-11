@@ -9,10 +9,10 @@ class BaseOutput(ABC):
 
         Parameters
         ----------
-        inputs : list of str
+        inputs : list[str]
             The original input strings.
 
-        predictions : list of str
+        predictions : list[str]
             The predicted strings corresponding to each input.
         """
         pass

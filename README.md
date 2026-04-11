@@ -16,10 +16,18 @@ This will automatically install the necessary packages for both training and inf
 
 ## Test Run
 
-To verify that the pipeline is functioning correctly, execute the provided test script:
+To verify that the pipeline is functioning correctly, execute the command below:
 
 ```bash
-./run_debug.sh
+uv run do-train --config-name smoke_train
 ```
 
-If the script completes successfully, the pipeline is operational and ready for further experiments.
+After it you can test inference: change checkpoint path in `configs/inference/loader/local.yaml` confing, then execute this command:
+
+```bash
+uv run run-inference --config-name smoke_inference
+```
+
+If the scripts complete successfully, the pipeline is operational and ready for further experiments.
+
+**Note**: don`t forget to activate venv.

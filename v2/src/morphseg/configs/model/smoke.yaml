@@ -1,0 +1,10 @@
+defaults:
+  - morphseg_module
+
+quantization_cfg:
+  enabled: false
+
+optimizer_cfg:
+  _target_: torch.optim.Adam
+  lr: 2e-4
+  weight_decay: 0.01

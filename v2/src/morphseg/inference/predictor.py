@@ -4,6 +4,8 @@ import torch
 from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer
 
+from morphseg.utils import get_device, dictconfig_to_dict
+
 
 class Predictor:
     """
@@ -15,14 +17,20 @@ class Predictor:
 
     Parameters
     ----------
-    model_cfg : DictConfig
+    model_cfg : omegaconf.DictConfig
         Configuration used to instantiate the model.
 
     checkpoint_path : str
         Path to the model checkpoint file.
 
-    tokenizer : PreTrainedTokenizer
+    tokenizer : transformers.PreTrainedTokenizer
         Tokenizer corresponding to the model.
+
+    device_type : str
+        The device type on which to run the model (e.g., 'cuda' or 'cpu').
+
+    generation_kwargs : omegaconf.DictConfig
+        Configuration of model generating.
     """
 
     def __init__(
@@ -30,56 +38,54 @@ class Predictor:
         model_cfg: DictConfig,
         checkpoint_path: str,
         tokenizer: PreTrainedTokenizer,
+        device_type: str,
+        generation_kwargs: DictConfig,
     ) -> None:
         self.tokenizer = tokenizer
+        self.generation_kwargs = dictconfig_to_dict(generation_kwargs)
 
         self.model = hydra.utils.instantiate(
             model_cfg, tokenizer=self.tokenizer, _recursive_=False
         )
 
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        self.device = get_device(device_type)
+
+        checkpoint = torch.load(
+            checkpoint_path, map_location=self.device, weights_only=False
+        )
         self.model.load_state_dict(checkpoint["state_dict"], strict=False)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.eval().to(self.device)
 
-        self.model.eval().freeze()
-        self.model.to(self.device)
-
-    def predict_batch(self, prompts: list[str]) -> list[str]:
+    def predict_batch(self, inputs: dict[str, torch.Tensor]) -> list[str]:
         """
         Generate predictions for a batch of prompts.
 
         Parameters
         ----------
-        prompts : list of str
-            A list of prompt strings to feed into the model.
+        inputs : dict[str, torch.Tensor]
+            Typical batch passed to forward method.
 
         Returns
         -------
-        list of str
-            Predicted outputs corresponding to each prompt. If the model
-            generates text containing "### Ответ:", only the part after
-            this marker is returned; otherwise, the full output is returned.
+        list[str]
+            Predicted outputs corresponding to each input.
         """
-        inputs = self.tokenizer(
-            prompts, padding=True, truncation=True, return_tensors="pt"
-        ).to(self.device)
 
-        with torch.no_grad():
+        batch = {k: v.to(self.device) for k, v in inputs.items()}
+        input_length = batch["input_ids"].shape[1]
+
+        with torch.inference_mode():
             outputs = self.model.model.generate(
-                **inputs,
-                max_new_tokens=64,
+                **batch,
+                **self.generation_kwargs,
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
 
-            decoded = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            generated_tokens = outputs[:, input_length:]
+            decoded = self.tokenizer.batch_decode(
+                generated_tokens, skip_special_tokens=True
+            )
 
-            results = []
-            for text in decoded:
-                if "### Ответ:" in text:
-                    results.append(text.split("### Ответ:")[1].strip())
-                else:
-                    results.append(text.strip())
-
-            return results
+            return [text.strip() for text in decoded]

@@ -1,0 +1,55 @@
+_target_: morphseg.models.MorphSegModule
+
+model_cfg:
+  model_name: hf-internal-testing/tiny-random-LlamaForCausalLM
+  torch_dtype: bf16
+  trust_remote_code: true
+
+quantization_cfg:
+  enabled: true
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bf16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+
+optimizer_cfg:
+  _target_: bitsandbytes.optim.PagedAdamW8bit
+  lr: 2e-4
+  weight_decay: 0.01
+
+scheduler_cfg:
+  _target_: morphseg.scheduler.build_scheduler
+  total_steps: ${trainer.max_epochs}
+  warmup_ratio: 0.1
+
+  scheduler_cfg:
+    _target_: torch.optim.lr_scheduler.SequentialLR
+    _partial_: true
+    schedulers:
+      - _target_: torch.optim.lr_scheduler.LinearLR
+        _partial_: true
+        start_factor: 0.001
+        end_factor: 1.0
+        total_iters: 0
+        
+      - _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+        _partial_: true
+        T_max: 0
+        eta_min: 1e-6
+    milestones: [0]
+
+scheduler_settings:
+  interval: epoch
+  frequency: 1
+
+lora_cfg:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  bias: none
+  task_type: CAUSAL_LM

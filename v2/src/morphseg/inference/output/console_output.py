@@ -8,17 +8,18 @@ class ConsoleOutput(BaseOutput):
 
     def write(self, inputs: list[str], predictions: list[str]) -> None:
         """
-        Print input strings and their corresponding predictions to the console.
+        Print input words and their corresponding predictions to the console.
 
         Parameters
         ----------
-        inputs : list of str
-            The original input strings.
+        inputs : list[str]
+            The original input words.
 
-        predictions : list of str
-            The predicted strings corresponding to each input.
+        predictions : list[str]
+            The predicted segmentations corresponding to each input.
         """
+
         print("\n--- Inference results ---")
-        for word, pred in zip(inputs, predictions):
-            print(f"{word} -> {pred}")
+        for input, pred in zip(inputs, predictions):
+            print(f"{input} -> {pred}")
         print("---------------------------")

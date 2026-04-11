@@ -4,7 +4,7 @@ import torch
 import pytorch_lightning as L
 import typing as tp
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedTokenizer
 
@@ -14,6 +14,7 @@ from morphseg.utils import (
     morpheme_precision,
     morpheme_recall,
     word_accuracy,
+    dictconfig_to_dict,
 )
 
 
@@ -29,64 +30,51 @@ class MorphSegModule(L.LightningModule):
 
     Parameters
     ----------
-    pretrained : DictConfig
+    model_cfg : DictConfig
         Hydra configuration describing how the base Hugging Face model should be
         loaded (e.g. model name, dtype, trust_remote_code flag).
 
-    quantization : DictConfig | None
+    quantization_cfg : DictConfig | None
         Optional configuration used to construct a ``BitsAndBytesConfig`` that
         controls model quantization. If enabled, this configuration is passed to
         ``AutoModelForCausalLM.from_pretrained``. If disabled or ``None``, the
         model is loaded without quantization.
 
-    optimizer : DictConfig
+    optimizer_cfg : DictConfig
         Hydra configuration used to instantiate the optimizer.
 
-    scheduler : DictConfig
+    scheduler_cfg : DictConfig
         Hydra configuration used to instantiate the learning rate scheduler.
 
-    scheduler_config : DictConfig
+    scheduler_settings : DictConfig
         Additional Lightning scheduler configuration (e.g. interval, frequency,
         monitor).
 
-    lora : DictConfig
+    lora_cfg : DictConfig
         Configuration for PEFT LoRA adapters (rank, alpha, dropout, target modules,
         etc.).
 
     tokenizer : PreTrainedTokenizer
         Hugging Face tokenizer used for preprocessing and generation.
-
-    Attributes
-    ----------
-    model : torch.nn.Module
-        The underlying Hugging Face causal language model with LoRA adapters applied.
-
-    optimizer_cfg : DictConfig
-        Hydra configuration used to instantiate the optimizer.
-
-    scheduler_cfg : DictConfig
-        Hydra configuration used to instantiate the scheduler.
-
-    scheduler_config : DictConfig
-        Additional scheduler configuration passed to Lightning.
     """
 
     def __init__(
         self,
-        pretrained: DictConfig,
-        quantization: DictConfig | None,
-        optimizer: DictConfig,
-        scheduler: DictConfig,
-        scheduler_config: DictConfig,
-        lora: DictConfig,
+        model_cfg: DictConfig,
+        lora_cfg: DictConfig,
         tokenizer: PreTrainedTokenizer,
+        quantization_cfg: DictConfig | None = None,
+        optimizer_cfg: DictConfig | None = None,
+        scheduler_cfg: DictConfig | None = None,
+        scheduler_settings: DictConfig | None = None,
     ) -> None:
         super().__init__()
+
         self.save_hyperparameters(logger=False)
 
-        self.optimizer_cfg = optimizer
-        self.scheduler_cfg = scheduler
-        self.scheduler_config = scheduler_config
+        self.optimizer_cfg = optimizer_cfg
+        self.scheduler_cfg = scheduler_cfg
+        self.scheduler_settings = scheduler_settings
 
         dtype_map = {
             "bf16": torch.bfloat16,
@@ -94,13 +82,11 @@ class MorphSegModule(L.LightningModule):
             "fp32": torch.float32,
         }
 
-        torch_dtype = dtype_map.get(pretrained.torch_dtype, torch.float32)
+        torch_dtype = dtype_map.get(model_cfg.torch_dtype, torch.float32)
 
         bnb_cfg = None
-        if quantization is not None and quantization.get("enabled", False):
-            quant_kwargs: dict[str, tp.Any] = OmegaConf.to_container(
-                quantization, resolve=True
-            )  # type: ignore
+        if quantization_cfg is not None and quantization_cfg.get("enabled", False):
+            quant_kwargs = dictconfig_to_dict(quantization_cfg)
             quant_kwargs.pop("enabled", None)
 
             if "bnb_4bit_compute_dtype" in quant_kwargs:
@@ -111,17 +97,20 @@ class MorphSegModule(L.LightningModule):
             bnb_cfg = BitsAndBytesConfig(**quant_kwargs)
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=pretrained.model_name,
+            pretrained_model_name_or_path=model_cfg.model_name,
             quantization_config=bnb_cfg,
-            trust_remote_code=pretrained.trust_remote_code,
-            torch_dtype=torch_dtype,
+            trust_remote_code=model_cfg.trust_remote_code,
+            dtype=torch_dtype,
         )
 
         if bnb_cfg is not None:
             self.model = prepare_model_for_kbit_training(self.model)
 
-        lora_cfg = LoraConfig(**lora)  # type: ignore
-        self.model = get_peft_model(self.model, lora_cfg)
+        lora = LoraConfig(**dictconfig_to_dict(lora_cfg))
+        self.model = get_peft_model(self.model, lora)
+
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
 
         self.tokenizer = tokenizer
         self.validation_step_outputs = []
@@ -144,7 +133,7 @@ class MorphSegModule(L.LightningModule):
 
         Returns
         -------
-        transformers.modeling_outputs.CausalLMOutput
+        typing.Any
             Model output containing logits and optionally the loss.
         """
 
@@ -192,8 +181,6 @@ class MorphSegModule(L.LightningModule):
             on_epoch=True,
         )
 
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], prog_bar=True)
-
         return loss
 
     def validation_step(self, batch, batch_idx) -> None:
@@ -211,33 +198,43 @@ class MorphSegModule(L.LightningModule):
 
         batch_idx : int
             Index of the current batch.
-
-        Returns
-        -------
-        None
         """
 
         input_ids = batch["input_ids"]
         labels = batch["labels"]
+        attention_mask = batch["attention_mask"]
 
-        generated_ids = self.model.generate(
-            input_ids=input_ids,
-            attention_mask=batch["attention_mask"],
-            max_new_tokens=64,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
+        with torch.inference_mode():
+            outputs = self(
+                input_ids=input_ids, labels=labels, attention_mask=attention_mask
+            )
+
+        val_loss = outputs.loss
+        self.log("val/loss", val_loss, prog_bar=True, on_epoch=True)
+
+        prompt_mask = labels == -100
+        prompt_input_ids = input_ids.clone()
+        prompt_input_ids[~prompt_mask] = self.tokenizer.pad_token_id
+
+        with torch.inference_mode():
+            generated_ids = self.model.generate(
+                input_ids=prompt_input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=128,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+            )
+
+        gen_only = generated_ids[:, input_ids.shape[1] :]
+
+        labels_for_decode = torch.where(
+            labels != -100,
+            labels,
+            torch.tensor(self.tokenizer.pad_token_id, device=labels.device),
         )
 
-        preds_raw = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)  # type: ignore
-        golds_raw = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-        def extract_answer(text: str) -> str:
-            if "### Ответ:" in text:
-                return text.split("### Ответ:")[1].strip()
-            return text.strip()
-
-        preds = [extract_answer(p) for p in preds_raw]
-        golds = [extract_answer(g) for g in golds_raw]
+        preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
+        golds = self.tokenizer.batch_decode(labels_for_decode, skip_special_tokens=True)
 
         self.validation_step_outputs.append({"preds": preds, "golds": golds})
 
@@ -266,7 +263,7 @@ class MorphSegModule(L.LightningModule):
             "word_accuracy": word_accuracy(all_preds, all_golds),
         }
 
-        self.log_dict(metrics, prog_bar=True, sync_dist=True)
+        self.log_dict(metrics, prog_bar=True)
 
         self.validation_step_outputs.clear()
 
@@ -286,6 +283,7 @@ class MorphSegModule(L.LightningModule):
             The checkpoint dictionary created by PyTorch Lightning during saving.
             The ``state_dict`` entry is modified in-place to keep only LoRA weights.
         """
+
         checkpoint["state_dict"] = {
             k: v for k, v in checkpoint["state_dict"].items() if "lora" in k
         }
@@ -300,20 +298,25 @@ class MorphSegModule(L.LightningModule):
             Dictionary compatible with PyTorch Lightning optimizer configuration.
             Contains instantiated optimizer and learning rate scheduler.
         """
+
         optimizer = hydra.utils.instantiate(
             self.optimizer_cfg,
             params=self.parameters(),
         )
 
-        scheduler = hydra.utils.instantiate(
-            self.scheduler_cfg,
-            optimizer=optimizer,
+        scheduler = hydra.utils.call(
+            self.scheduler_cfg, optimizer=optimizer, _recursive_=False
         )
+
+        if self.scheduler_settings is None:
+            ss = {}
+        else:
+            ss = self.scheduler_settings
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                **self.scheduler_config,
+                **ss,
             },
         }

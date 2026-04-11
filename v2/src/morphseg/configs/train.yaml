@@ -1,0 +1,16 @@
+defaults: 
+  - _self_
+  - datamodule: morphology_json
+  - model: morphseg_module
+  - training: run_params
+  - trainer: gpu_base
+  - logger: mlflow
+
+hydra:
+  run:
+    dir: outputs/${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  output_subdir: .hydra
+
+  sweep:
+    dir: outputs/${hydra.job.name}/multirun/${now:%Y-%m-%d}
+    subdir: ${hydra.job.num}

@@ -25,7 +25,7 @@ class FileInput(BaseInput):
 
         Returns
         -------
-        list of str
+        list[str]
             A list of strings where each element corresponds to a stripped
             line from the file.
 

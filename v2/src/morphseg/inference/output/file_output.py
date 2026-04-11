@@ -17,6 +17,7 @@ class FileOutput(BaseOutput):
         output_path : str
             Path to the file where the results will be saved.
         """
+
         self.output_path = Path(output_path)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -26,13 +27,14 @@ class FileOutput(BaseOutput):
 
         Parameters
         ----------
-        inputs : list of str
+        inputs : list[str]
             The original input strings.
 
-        predictions : list of str
+        predictions : list[str]
             The predicted strings corresponding to each input.
         """
+
         with open(self.output_path, "w", encoding="utf-8") as f:
-            for word, pred in zip(inputs, predictions):
-                f.write(f"{word} -> {pred}")
+            for input, pred in zip(inputs, predictions):
+                f.write(f"{input} -> {pred}")
         print(f"Resulsts saved in {self.output_path}")

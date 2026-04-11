@@ -15,6 +15,7 @@ def _parse(seg: str) -> list[str]:
     list[str]
         List of morpheme strings.
     """
+
     return [ss for s in seg.split("/") if (ss := s.strip())]
 
 
@@ -37,6 +38,7 @@ def _flatten_to_char_tags(seg: str) -> list[tuple[str, str]]:
     --------
     'миг:ROOT' -> [('м', 'ROOT'), ('и', 'ROOT'), ('г', 'ROOT')]
     """
+
     result = []
     parts = [p.strip() for p in seg.split("/") if p.strip()]
 
@@ -84,6 +86,7 @@ def char_accuracy(preds: Iterable[str], golds: Iterable[str]) -> float:
     golds = ['миг:ROOT']
     char_accuracy(preds, golds) -> 1.0
     """
+
     correct_chars = 0
     total_chars = 0
 
@@ -125,6 +128,7 @@ def word_accuracy(preds: Iterable[str], golds: Iterable[str]) -> float:
     float
         Fraction of exactly matched words.
     """
+
     preds = list(preds)
     golds = list(golds)
     assert len(preds) == len(golds)
@@ -154,6 +158,7 @@ def _filter_morphemes(
     set[str]
         Filtered set of morphemes.
     """
+
     result = set()
     for m in morphemes:
         if ":" not in m:
@@ -191,6 +196,7 @@ def _morpheme_stats_single(
     tuple[int, int, int]
         (tp, fp, fn) counts for the given example.
     """
+
     p = _filter_morphemes(_parse(pred), allowed_types)
     g = _filter_morphemes(_parse(gold), allowed_types)
 
@@ -225,6 +231,7 @@ def _morpheme_stats(
     tuple[int, int, int]
         Aggregated (tp, fp, fn) counts.
     """
+
     tp = fp = fn = 0
 
     for p, g in zip(preds, golds):
@@ -261,6 +268,7 @@ def morpheme_precision(
     float
         Morpheme-level precision.
     """
+
     tp, fp, _ = _morpheme_stats(preds, golds, allowed_types=allowed_types)
 
     if tp + fp == 0:
@@ -294,6 +302,7 @@ def morpheme_recall(
     float
         Morpheme-level recall.
     """
+
     tp, _, fn = _morpheme_stats(preds, golds, allowed_types=allowed_types)
 
     if tp + fn == 0:
@@ -327,6 +336,7 @@ def morpheme_f1(
     float
         Morpheme-level F1 score.
     """
+
     tp, fp, fn = _morpheme_stats(preds, golds, allowed_types=allowed_types)
 
     if tp == 0:

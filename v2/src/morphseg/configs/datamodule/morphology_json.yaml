@@ -1,0 +1,43 @@
+_target_: morphseg.datamodules.MorphologyDataModule
+
+data_paths:
+  train: data/train.jsonl
+  val: data/val.jsonl
+
+prompt_template: |
+  ### Инструкция:
+  Раздели слово на морфемы и укажи тип каждой морфемы
+  ### Слово: {word}
+  ### Ответ: 
+
+tokenizer_header_cfg:
+  truncation: true
+  max_length: 256
+  padding: false
+  add_special_tokens: false
+
+tokenizer_target_cfg:
+  truncation: true
+  max_length: 128
+  padding: false
+  add_special_tokens: false
+
+train_dataloader_cfg:
+  batch_size: 8
+  shuffle: true
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+
+val_dataloader_cfg:
+  batch_size: 16
+  shuffle: false
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+
+num_proc: 4
+
+collator_cfg:
+  _target_: transformers.DataCollatorForLanguageModeling
+  mlm: false

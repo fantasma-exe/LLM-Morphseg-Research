@@ -9,7 +9,7 @@ class BaseInput(ABC):
 
         Returns
         -------
-        list of str
+        list[str]
             A list containing the read strings (words).
         """
         pass

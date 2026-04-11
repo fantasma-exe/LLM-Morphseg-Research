@@ -5,166 +5,134 @@ import pytorch_lightning as L
 from omegaconf import DictConfig
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-from transformers import (
-    PreTrainedTokenizer,
-    BatchEncoding,
-)
+from transformers import PreTrainedTokenizer
+
+from morphseg.utils import dictconfig_to_dict
 
 
 class MorphologyDataModule(L.LightningDataModule):
     """
-    PyTorch Lightning DataModule for morphological segmentation training.
+    PyTorch Lightning DataModule for morphological segmentation tasks.
 
-    Loads a JSON dataset, converts each example into an instruction-style prompt,
-    tokenizes the text, and provides PyTorch DataLoaders.
+    This module loads datasets from JSON files, applies tokenization using a
+    provided tokenizer, and prepares PyTorch DataLoaders for training and validation.
 
     Parameters
     ----------
-    tokenizer : PreTrainedTokenizer
-        Hugging Face tokenizer used to tokenize prompts.
+    tokenizer : transformers.PreTrainedTokenizer
+        Tokenizer used to encode input and target texts.
 
-    paths : DictConfig
-        Dictionary containing 'train_data' and 'val_data' file paths.
+    data_paths : omegaconf.DictConfig
+        Mapping of dataset splits to file paths (e.g., {"train": ..., "val": ...}).
 
     prompt_template : str
-        String template for the instruction prompt (must contain {word}).
+        Template string used to construct the input prompt. Should contain
+        a placeholder for the input word (e.g., "{word}").
 
-    dataloader_kwargs : DictConfig
-        Keyword arguments passed to the DataLoader (batch_size, num_workers, etc.).
+    train_dataloader_cfg : omegaconf.DictConfig
+        Hydra сonfiguration for the training DataLoader.
 
-    tokenizer_kwargs : DictConfig
-        Keyword arguments for the tokenizer (max_length, padding, etc.).
+    val_dataloader_cfg : omegaconf.DictConfig
+        Hydra сonfiguration for the validation DataLoader.
 
-    num_proc : int, optional
-        Number of processes for data processing, by default 1.
+    tokenizer_header_cfg : omegaconf.DictConfig
+        Tokenizer arguments for encoding the input (prompt).
 
-    collator_cfg : DictConfig, optional
-        Hydra configuration for the data collator. If None, a default setup
-        should be handled manually.
+    tokenizer_target_cfg : omegaconf.DictConfig
+        Tokenizer arguments for encoding the target output.
+
+    num_proc : int, default=1
+        Number of processes used for dataset preprocessing.
+
+    collator_cfg : omegaconf.DictConfig | None, default=None
+        Hydra config for instantiating a data collator.
     """
 
     def __init__(
         self,
         tokenizer: PreTrainedTokenizer,
-        paths: DictConfig,
+        data_paths: DictConfig,
         prompt_template: str,
-        dataloader_kwargs: DictConfig,
-        tokenizer_kwargs: DictConfig,
+        train_dataloader_cfg: DictConfig,
+        val_dataloader_cfg: DictConfig,
+        tokenizer_header_cfg: DictConfig,
+        tokenizer_target_cfg: DictConfig,
         num_proc: int = 1,
         collator_cfg: DictConfig | None = None,
     ) -> None:
         super().__init__()
+
         self.save_hyperparameters(ignore=["tokenizer"])
 
         self.tokenizer = tokenizer
-        self.paths = paths
+        self.data_files = dictconfig_to_dict(data_paths, resolve=True)
         self.prompt_template = prompt_template
-        self.dataloader_kwargs = dataloader_kwargs
-        self.tokenizer_kwargs = tokenizer_kwargs
         self.num_proc = num_proc
 
-        if collator_cfg:
+        self.tokenizer_header_kwargs = dictconfig_to_dict(tokenizer_header_cfg)
+        self.tokenizer_target_kwargs = dictconfig_to_dict(tokenizer_target_cfg)
+        self.train_cfg = dictconfig_to_dict(train_dataloader_cfg)
+        self.val_cfg = dictconfig_to_dict(val_dataloader_cfg)
+
+        if collator_cfg is not None:
             self.data_collator = hydra.utils.instantiate(
                 collator_cfg, tokenizer=self.tokenizer
             )
         else:
             self.data_collator = None
 
-    def _build_prompt(self, word: str, answer: str | None = None) -> str:
-        """
-        Build an instruction-style prompt for morphological segmentation.
-
-        The prompt asks the model to split a word into morphemes and label
-        each morpheme type.
-
-        Parameters
-        ----------
-        word : str
-            Word to be segmented.
-
-        answer : str | None, optional
-            Reference segmentation to append to the prompt.
-
-        Returns
-        -------
-        str
-            Formatted instruction prompt.
-        """
-        template = self.prompt_template
-        prompt = template.format(word=word)
-
-        if answer is not None:
-            prompt += f"{answer}{self.tokenizer.eos_token}"
-
-        return prompt
-
     def setup(self, stage: str | None = None) -> None:
         """
-        Prepare the dataset for training.
+        Load and preprocess datasets.
 
-        This method loads the raw dataset from JSON files and applies
-        tokenization and prompt construction.
+        This method loads JSON datasets using Hugging Face Datasets, applies
+        tokenization, and prepares train and validation splits.
 
         Parameters
         ----------
-        stage : str | None, optional
-            Lightning stage indicator (e.g. "fit", "test").
-            Currently unused.
-
-        Returns
-        -------
-        None
+        stage : str | None, default=None
+            Stage identifier used by Lightning ("fit", "validate", etc.).
+            If None, all relevant datasets are prepared.
         """
 
-        data_files = {"train": self.paths.train_path}
+        raw_dataset = load_dataset("json", data_files=self.data_files)
 
-        val_path = self.paths.get("val_path")
-        if val_path:
-            data_files["val"] = self.paths.val_path
+        def tokenize_fn(example: dict[str, str]) -> dict:
+            header_text = f"{self.tokenizer.bos_token}{self.prompt_template.format(word=example['input'])}"
+            target_text = f"{example['output']}{self.tokenizer.eos_token}"
 
-        dataset = load_dataset("json", data_files=data_files)
+            header_ids = self.tokenizer(
+                header_text,
+                **self.tokenizer_header_kwargs,
+            )["input_ids"]
+            target_ids = self.tokenizer(
+                target_text,
+                **self.tokenizer_target_kwargs,
+            )["input_ids"]
 
-        def tokenize_function(example: dict[str, str]) -> BatchEncoding:
-            """
-            Convert a raw dataset example into tokenized prompt format.
+            input_ids = header_ids + target_ids  # type: ignore
+            labels = [-100] * len(header_ids) + target_ids  # type:ignore
+            attention_mask = [1] * len(input_ids)
 
-            Parameters
-            ----------
-            example : dict[str, str]
-                Raw dataset example with structure::
+            return {
+                "input_ids": input_ids,
+                "labels": labels,
+                "attention_mask": attention_mask,
+            }
 
-                    {
-                        "input": "word",
-                        "output": "segmentation"
-                    }
-
-            Returns
-            -------
-            BatchEncoding
-                Tokenized prompt with labels for causal LM training.
-            """
-
-            prompt = self._build_prompt(example["input"], example["output"])
-
-            outputs = self.tokenizer(prompt, **self.tokenizer_kwargs)  # type: ignore
-
-            outputs["labels"] = outputs["input_ids"].copy()  # type: ignore
-
-            return outputs
-
-        self.train_dataset = dataset["train"].map(
-            tokenize_function,
-            remove_columns=dataset["train"].column_names,
-            desc="Tokenizing train dataset",
+        self.train_ds = raw_dataset["train"].map(
+            tokenize_fn,
+            remove_columns=raw_dataset["train"].column_names,
             num_proc=self.num_proc,
+            desc="Tokenizing train",
         )
 
-        if "val" in dataset:
-            self.val_dataset = dataset["val"].map(
-                tokenize_function,
-                remove_columns=dataset["val"].column_names,
-                desc="Tokenizing val dataset",
+        if "val" in raw_dataset:
+            self.val_ds = raw_dataset["val"].map(
+                tokenize_fn,
+                remove_columns=raw_dataset["val"].column_names,
                 num_proc=self.num_proc,
+                desc="Tokenizing val",
             )
 
     def train_dataloader(self) -> DataLoader:
@@ -173,14 +141,14 @@ class MorphologyDataModule(L.LightningDataModule):
 
         Returns
         -------
-        DataLoader
-            PyTorch DataLoader for the training dataset.
+        torch.utils.data.DataLoader
+            DataLoader for the training dataset.
         """
 
         return DataLoader(
-            self.train_dataset,  # type: ignore
+            self.train_ds,  # type: ignore
             collate_fn=self.data_collator,
-            **self.dataloader_kwargs,  # type: ignore
+            **self.train_cfg,
         )
 
     def val_dataloader(self) -> DataLoader | None:
@@ -189,15 +157,11 @@ class MorphologyDataModule(L.LightningDataModule):
 
         Returns
         -------
-        DataLoader | None
-            PyTorch DataLoader for the validation dataset.
+        torch.utils.data.DataLoader | None
+            DataLoader for the validation dataset.
         """
 
-        if not hasattr(self, "val_dataset"):
+        if not hasattr(self, "val_ds"):
             return None
 
-        return DataLoader(
-            self.val_dataset,  # type: ignore
-            collate_fn=self.data_collator,
-            **self.dataloader_kwargs,  # type: ignore
-        )
+        return DataLoader(self.val_ds, collate_fn=self.data_collator, **self.val_cfg)  # type:ignore

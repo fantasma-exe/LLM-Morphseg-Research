@@ -1,0 +1,5 @@
+defaults:
+  - morphseg_inference_module
+
+quantization_cfg:
+  enabled: false

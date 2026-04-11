@@ -23,7 +23,7 @@ class MorphologyInferenceDataset(Dataset):
         self.words = words
         self.prompt_template = prompt_template
 
-    def __getitem__(self, index: int) -> str:
+    def __getitem__(self, index: int) -> dict[str, str]:
         """
         Return a formatted prompt for the given index.
 
@@ -34,13 +34,13 @@ class MorphologyInferenceDataset(Dataset):
 
         Returns
         -------
-        str
-            A prompt string created by inserting the word into the
-            prompt template.
+        dict[str, str]
+            {"word": ..., "prompt": ...}.
         """
+
         word = self.words[index]
         prompt = self.prompt_template.format(word=word)
-        return prompt
+        return {"word": word, "prompt": prompt}
 
     def __len__(self) -> int:
         """
@@ -51,4 +51,5 @@ class MorphologyInferenceDataset(Dataset):
         int
             Number of elements in the dataset.
         """
+
         return len(self.words)
