@@ -25,6 +25,7 @@ mlruns/
 *.safetensors
 
 # Local data
+/v2/model
 data/
 logs/
 tikhonov.zip

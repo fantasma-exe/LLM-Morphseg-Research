@@ -1,2 +1,2 @@
 _target_: morphseg.inference.loaders.LocalCheckpointLoader
-checkpoint_path: outputs/2026-04-10/train_13-21-20/logs/lightning_logs/version_0/checkpoints/last.ckpt
+checkpoint_path: outputs/train/2026-04-13/17-14-58/checkpoints/last.ckpt

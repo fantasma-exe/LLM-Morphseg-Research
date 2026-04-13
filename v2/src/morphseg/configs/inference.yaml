@@ -33,12 +33,15 @@ pipeline:
     device_type: cuda
     generation_kwargs:
       max_new_tokens: 64
-  
+
+paths:
+  output_dir: outputs/inference/${now:%Y-%m-%d}/${now:%H-%M-%S} 
+
 hydra:
   run:
-    dir: outputs/${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ${paths.output_dir}
   output_subdir: .hydra
 
   sweep:
-    dir: outputs/${hydra.job.name}/multirun/${now:%Y-%m-%d}
+    dir: ${paths.output_dir}
     subdir: ${hydra.job.num}

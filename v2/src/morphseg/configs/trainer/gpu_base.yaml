@@ -2,16 +2,17 @@ _target_: pytorch_lightning.Trainer
 
 callbacks:
   - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-    monitor: morpheme_f1_full   
-    mode: max                   
-    save_top_k: 2                   
-    filename: best-{epoch}-{morpheme_f1_full:.3f}
+    monitor: morpheme_f1_full
+    mode: max
+    save_top_k: 2
+    dirpath: ${paths.output_dir}/checkpoints               
+    filename: best-{epoch:02d}-{morpheme_f1_full:.3f}
     save_last: true                 
     every_n_epochs: 1                 
 
   - _target_: pytorch_lightning.callbacks.EarlyStopping
     monitor: morpheme_f1_full
-    patience: 5         
+    patience: 5
     mode: max
 
   - _target_: pytorch_lightning.callbacks.LearningRateMonitor

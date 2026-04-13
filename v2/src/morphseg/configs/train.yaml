@@ -6,11 +6,14 @@ defaults:
   - trainer: gpu_base
   - logger: mlflow
 
+paths:
+  output_dir: outputs/train/${now:%Y-%m-%d}/${now:%H-%M-%S} 
+
 hydra:
   run:
-    dir: outputs/${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ${paths.output_dir}
   output_subdir: .hydra
 
   sweep:
-    dir: outputs/${hydra.job.name}/multirun/${now:%Y-%m-%d}
+    dir: ${paths.output_dir}
     subdir: ${hydra.job.num}
