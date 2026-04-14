@@ -6,7 +6,7 @@ from .metrics import (
     morpheme_recall,
 )
 from .config import dictconfig_to_dict
-from .utils import get_device
+from .utils import get_device, get_datamodule_hash
 
 __all__ = [
     "char_accuracy",
@@ -16,4 +16,5 @@ __all__ = [
     "morpheme_recall",
     "dictconfig_to_dict",
     "get_device",
+    "get_datamodule_hash"
 ]

@@ -4,6 +4,7 @@ model_cfg:
   model_name: hf-internal-testing/tiny-random-LlamaForCausalLM
   torch_dtype: bf16
   trust_remote_code: true
+  max_tokens_val_generation: 96
 
 quantization_cfg:
   enabled: true

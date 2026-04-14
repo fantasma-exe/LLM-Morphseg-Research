@@ -1,5 +1,7 @@
 import hydra
 
+import torch.multiprocessing as mp
+
 from omegaconf import DictConfig, OmegaConf
 from transformers import AutoTokenizer
 
@@ -19,10 +21,12 @@ def train(cfg: DictConfig) -> None:
         The expected configuration structure and available options are
         defined in ``configs/train.yaml``.
     """
+    
+    mp.set_start_method('spawn', force=True)
 
     print(OmegaConf.to_yaml(cfg))
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.model_cfg.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model.model_cfg.model_name, padding_side="left")
 
     model = hydra.utils.instantiate(cfg.model, tokenizer=tokenizer, _recursive_=False)
     datamodule = hydra.utils.instantiate(

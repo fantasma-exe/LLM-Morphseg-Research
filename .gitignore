@@ -25,6 +25,8 @@ mlruns/
 *.safetensors
 
 # Local data
+.cache
+sync_repo.sh
 /v2/model
 data/
 logs/

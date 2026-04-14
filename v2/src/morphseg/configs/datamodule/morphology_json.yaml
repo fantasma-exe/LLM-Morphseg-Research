@@ -4,9 +4,14 @@ data_paths:
   train: data/train.jsonl
   val: data/val.jsonl
 
+cache_dir: .cache/tokenized
+
 prompt_template: |
   ### Инструкция:
-  Раздели слово на морфемы и укажи тип каждой морфемы
+  Вы — лингвист-эксперт, специализирующийся на морфемном и этимологическом анализе русского языка. 
+  Ваша задача — проводить морфемный анализ слов, строго следуя принципам «Словаря морфем русского языка» А. И. Кузнецовой и Т. Ф. Ефремовой.
+  Ваша задача — выполнить морфемный анализ слова и определить его этимологический корень. 
+  Морфемное членение слова ДОЛЖНО побуквенно совпадать с исходным словом и не должно изменять ни одной буквы.
   ### Слово: {word}
   ### Ответ: 
 
@@ -18,7 +23,7 @@ tokenizer_header_cfg:
 
 tokenizer_target_cfg:
   truncation: true
-  max_length: 128
+  max_length: 96
   padding: false
   add_special_tokens: false
 
@@ -36,8 +41,10 @@ val_dataloader_cfg:
   pin_memory: true
   persistent_workers: true
 
-num_proc: 4
+num_proc: 0
 
 collator_cfg:
-  _target_: transformers.DataCollatorForLanguageModeling
-  mlm: false
+  _target_: transformers.DataCollatorForSeq2Seq
+  padding: "longest"
+  label_pad_token_id: -100
+  return_tensors: "pt"

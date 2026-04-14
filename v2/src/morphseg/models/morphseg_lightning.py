@@ -72,6 +72,7 @@ class MorphSegModule(L.LightningModule):
 
         self.save_hyperparameters(logger=False)
 
+        self.model_cfg = model_cfg
         self.optimizer_cfg = optimizer_cfg
         self.scheduler_cfg = scheduler_cfg
         self.scheduler_settings = scheduler_settings
@@ -82,7 +83,7 @@ class MorphSegModule(L.LightningModule):
             "fp32": torch.float32,
         }
 
-        torch_dtype = dtype_map.get(model_cfg.torch_dtype, torch.float32)
+        torch_dtype = dtype_map.get(self.model_cfg.torch_dtype, torch.float32)
 
         bnb_cfg = None
         if quantization_cfg is not None and quantization_cfg.get("enabled", False):
@@ -97,9 +98,9 @@ class MorphSegModule(L.LightningModule):
             bnb_cfg = BitsAndBytesConfig(**quant_kwargs)
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=model_cfg.model_name,
+            pretrained_model_name_or_path=self.model_cfg.model_name,
             quantization_config=bnb_cfg,
-            trust_remote_code=model_cfg.trust_remote_code,
+            trust_remote_code=self.model_cfg.trust_remote_code,
             dtype=torch_dtype,
         )
 
@@ -220,7 +221,7 @@ class MorphSegModule(L.LightningModule):
             generated_ids = self.model.generate(
                 input_ids=prompt_input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=128,
+                max_new_tokens=self.model_cfg.max_tokens_val_generation,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
