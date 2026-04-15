@@ -6,6 +6,10 @@ model_cfg:
   trust_remote_code: true
   max_tokens_val_generation: 96
 
+log_cfg:
+  limit_val_batches: 5
+  num_print_sample: 3
+
 quantization_cfg:
   enabled: true
   load_in_4bit: true
@@ -16,6 +20,7 @@ quantization_cfg:
 optimizer_cfg:
   _target_: bitsandbytes.optim.PagedAdamW8bit
   lr: 2e-4
+  betas: [0.9, 0.999]
   weight_decay: 0.01
 
 scheduler_cfg:

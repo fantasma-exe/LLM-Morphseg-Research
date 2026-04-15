@@ -33,6 +33,9 @@ class MorphSegModule(L.LightningModule):
     model_cfg : DictConfig
         Hydra configuration describing how the base Hugging Face model should be
         loaded (e.g. model name, dtype, trust_remote_code flag).
+        
+    log_cfg : DictConfig
+        Hydra configuration that controls when and what to log.
 
     quantization_cfg : DictConfig | None
         Optional configuration used to construct a ``BitsAndBytesConfig`` that
@@ -61,6 +64,7 @@ class MorphSegModule(L.LightningModule):
     def __init__(
         self,
         model_cfg: DictConfig,
+        log_cfg: DictConfig,
         lora_cfg: DictConfig,
         tokenizer: PreTrainedTokenizer,
         quantization_cfg: DictConfig | None = None,
@@ -73,6 +77,7 @@ class MorphSegModule(L.LightningModule):
         self.save_hyperparameters(logger=False)
 
         self.model_cfg = model_cfg
+        self.log_cfg = log_cfg
         self.optimizer_cfg = optimizer_cfg
         self.scheduler_cfg = scheduler_cfg
         self.scheduler_settings = scheduler_settings
@@ -212,40 +217,51 @@ class MorphSegModule(L.LightningModule):
 
         val_loss = outputs.loss
         self.log("val/loss", val_loss, prog_bar=True, on_epoch=True)
+        
+        if batch_idx < self.log_cfg.limit_val_batches:
+            prompt_mask = labels == -100
+            prompt_input_ids = input_ids.clone()
+            prompt_input_ids[~prompt_mask] = self.tokenizer.pad_token_id
 
-        prompt_mask = labels == -100
-        prompt_input_ids = input_ids.clone()
-        prompt_input_ids[~prompt_mask] = self.tokenizer.pad_token_id
+            with torch.inference_mode():
+                generated_ids = self.model.generate(
+                    input_ids=prompt_input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=self.model_cfg.max_tokens_val_generation,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                )
 
-        with torch.inference_mode():
-            generated_ids = self.model.generate(
-                input_ids=prompt_input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=self.model_cfg.max_tokens_val_generation,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
+            gen_only = generated_ids[:, input_ids.shape[1] :]
+
+            labels_for_decode = torch.where(
+                labels != -100,
+                labels,
+                torch.tensor(self.tokenizer.pad_token_id, device=labels.device),
             )
 
-        gen_only = generated_ids[:, input_ids.shape[1] :]
+            preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
+            golds = self.tokenizer.batch_decode(labels_for_decode, skip_special_tokens=True)
 
-        labels_for_decode = torch.where(
-            labels != -100,
-            labels,
-            torch.tensor(self.tokenizer.pad_token_id, device=labels.device),
-        )
-
-        preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
-        golds = self.tokenizer.batch_decode(labels_for_decode, skip_special_tokens=True)
-
-        self.validation_step_outputs.append({"preds": preds, "golds": golds})
+            self.validation_step_outputs.append({"preds": preds, "golds": golds})
 
     def on_validation_epoch_end(self) -> None:
+        if not self.validation_step_outputs:
+            return
+        
         all_preds = [
             p for batch in self.validation_step_outputs for p in batch["preds"]
         ]
         all_golds = [
             g for batch in self.validation_step_outputs for g in batch["golds"]
         ]
+        
+        print("\n" + "="*50)
+        print(f"Epoch {self.current_epoch} - Sample Generations")
+        for i in range(min(self.log_cfg.num_print_sample, len(all_preds))):
+            print(f"Target : {all_golds[i]}")
+            print(f"Predict: {all_preds[i]}")
+            print("-" * 50)
 
         metrics = {
             "morpheme_precision_full": morpheme_precision(all_preds, all_golds),
