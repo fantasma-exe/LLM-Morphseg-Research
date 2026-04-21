@@ -9,7 +9,7 @@ cache_dir: .cache/tokenized
 prompt_template: |
   ### Инструкция:
   Вы — лингвист-эксперт, специализирующийся на морфемном и этимологическом анализе русского языка. 
-  Ваша задача — проводить морфемный анализ слов, строго следуя принципам «Словаря морфем русского языка» А. И. Кузнецовой и Т. Ф. Ефремовой.
+  Ваша задача — проводить морфемный анализ слов, строго следуя принципам "Словообразовательный словарь русского языка" Тихонова А.Н.
   Ваша задача — выполнить морфемный анализ слова и определить его этимологический корень. 
   Морфемное членение слова ДОЛЖНО побуквенно совпадать с исходным словом и не должно изменять ни одной буквы.
   ### Слово: {word}
@@ -23,7 +23,7 @@ tokenizer_header_cfg:
 
 tokenizer_target_cfg:
   truncation: true
-  max_length: 96
+  max_length: 128
   padding: false
   add_special_tokens: false
 
@@ -44,7 +44,9 @@ val_dataloader_cfg:
 num_proc: 0
 
 collator_cfg:
-  _target_: transformers.DataCollatorForSeq2Seq
+  _target_: morphseg.datamodules.DataCollatorContainingPrompt
   padding: "longest"
   label_pad_token_id: -100
   return_tensors: "pt"
+
+logic_version: v2_version

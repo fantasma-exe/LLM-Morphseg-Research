@@ -51,6 +51,9 @@ class MorphologyDataModule(L.LightningDataModule):
 
     collator_cfg : omegaconf.DictConfig | None, default=None
         Hydra config for instantiating a data collator.
+        
+    logic_version : str
+        Version of datamodule implementation.
     """
 
     def __init__(
@@ -65,6 +68,7 @@ class MorphologyDataModule(L.LightningDataModule):
         tokenizer_target_cfg: DictConfig,
         num_proc: int = 1,
         collator_cfg: DictConfig | None = None,
+        logic_version: str = "v2_version"
     ) -> None:
         super().__init__()
 
@@ -73,6 +77,7 @@ class MorphologyDataModule(L.LightningDataModule):
         self.tokenizer = tokenizer
         self.prompt_template = prompt_template
         self.num_proc = num_proc
+        self.logic_version = logic_version
 
         self.data_files = dictconfig_to_dict(data_paths, resolve=True)
         self.tokenizer_header_kwargs = dictconfig_to_dict(tokenizer_header_cfg)
@@ -80,7 +85,7 @@ class MorphologyDataModule(L.LightningDataModule):
         self.train_cfg = dictconfig_to_dict(train_dataloader_cfg)
         self.val_cfg = dictconfig_to_dict(val_dataloader_cfg)
         
-        self.cache_id = get_datamodule_hash(self.data_files, tokenizer.name_or_path, self.prompt_template)
+        self.cache_id = get_datamodule_hash(self.data_files, tokenizer.name_or_path, self.prompt_template, logic_version)
         self.cache_dir = os.path.join(cache_dir, self.cache_id)
 
         if collator_cfg is not None:
@@ -133,6 +138,7 @@ class MorphologyDataModule(L.LightningDataModule):
             "input_ids": input_ids,
             "labels": labels,
             "attention_mask": attention_mask,
+            "prompt_raw_text": header_text,
         }
         
     def prepare_data(self) -> None:

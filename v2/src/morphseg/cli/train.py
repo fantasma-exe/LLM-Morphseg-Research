@@ -26,7 +26,7 @@ def train(cfg: DictConfig) -> None:
 
     print(OmegaConf.to_yaml(cfg))
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.model_cfg.model_name, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model.model_cfg.model_name)
 
     model = hydra.utils.instantiate(cfg.model, tokenizer=tokenizer, _recursive_=False)
     datamodule = hydra.utils.instantiate(

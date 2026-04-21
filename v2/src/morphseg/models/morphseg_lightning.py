@@ -33,7 +33,7 @@ class MorphSegModule(L.LightningModule):
     model_cfg : DictConfig
         Hydra configuration describing how the base Hugging Face model should be
         loaded (e.g. model name, dtype, trust_remote_code flag).
-        
+
     log_cfg : DictConfig
         Hydra configuration that controls when and what to log.
 
@@ -217,47 +217,61 @@ class MorphSegModule(L.LightningModule):
 
         val_loss = outputs.loss
         self.log("val/loss", val_loss, prog_bar=True, on_epoch=True)
-        
+
         if batch_idx < self.log_cfg.limit_val_batches:
-            prompt_mask = labels == -100
-            prompt_input_ids = input_ids.clone()
-            prompt_input_ids[~prompt_mask] = self.tokenizer.pad_token_id
+            prompt_raw_text = batch["prompt_raw_text"]
+
+            self.tokenizer.padding_side = "left"
+            prompt_encodings = self.tokenizer(
+                prompt_raw_text,
+                return_tensors="pt",
+                padding=True,
+                add_special_tokens=False,
+            ).to(self.model.device)  # type: ignore
+            self.tokenizer.padding_side = "right"
 
             with torch.inference_mode():
                 generated_ids = self.model.generate(
-                    input_ids=prompt_input_ids,
-                    attention_mask=attention_mask,
+                    input_ids=prompt_encodings["input_ids"],
+                    attention_mask=prompt_encodings["attention_mask"],
                     max_new_tokens=self.model_cfg.max_tokens_val_generation,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
                 )
 
-            gen_only = generated_ids[:, input_ids.shape[1] :]
+            gen_only = generated_ids[:, prompt_encodings["input_ids"].shape[1] :]  # type: ignore
+
+            preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
 
             labels_for_decode = torch.where(
                 labels != -100,
                 labels,
                 torch.tensor(self.tokenizer.pad_token_id, device=labels.device),
             )
+            golds = self.tokenizer.batch_decode(
+                labels_for_decode, skip_special_tokens=True
+            )
 
-            preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
-            golds = self.tokenizer.batch_decode(labels_for_decode, skip_special_tokens=True)
+            clean_preds = [p.split("\n")[0].strip() for p in preds]
+            clean_golds = [g.strip() for g in golds]
 
-            self.validation_step_outputs.append({"preds": preds, "golds": golds})
+            self.validation_step_outputs.append(
+                {"preds": clean_preds, "golds": clean_golds}
+            )
 
     def on_validation_epoch_end(self) -> None:
         if not self.validation_step_outputs:
             return
-        
+
         all_preds = [
             p for batch in self.validation_step_outputs for p in batch["preds"]
         ]
         all_golds = [
             g for batch in self.validation_step_outputs for g in batch["golds"]
         ]
-        
-        print("\n" + "="*50)
-        print(f"Epoch {self.current_epoch} - Sample Generations")
+
+        print("\n" + "=" * 50)
+        print(f"Epoch {self.current_epoch + 1} - Sample Generations")
         for i in range(min(self.log_cfg.num_print_sample, len(all_preds))):
             print(f"Target : {all_golds[i]}")
             print(f"Predict: {all_preds[i]}")
