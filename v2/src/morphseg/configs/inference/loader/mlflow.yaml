@@ -1,4 +1,0 @@
-_target_: morphseg.inference.loaders.MLflowLoader
-tracking_uri: http://localhost:5000
-run_id: null
-dst_dir: ./artifacts/loaded

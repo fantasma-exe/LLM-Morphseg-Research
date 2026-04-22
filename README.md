@@ -30,4 +30,4 @@ uv run run-inference --config-name smoke_inference
 
 If the scripts complete successfully, the pipeline is operational and ready for further experiments.
 
-**Note**: execute all comands inside v2 folder.
+**Note**: execute all comands from dir root.

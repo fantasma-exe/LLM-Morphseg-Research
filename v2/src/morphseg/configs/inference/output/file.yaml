@@ -1,2 +1,0 @@
-_target_: morphseg.inference.output.FileOutput
-output_path: ${paths.output_dir}/predictions.txt

@@ -25,11 +25,11 @@ mlruns/
 *.safetensors
 
 # Local data
-v2/cluster_results
+cluster_results/
 .cache
 scripts/
 tools/
-/v2/model
+model/
 data/
 logs/
 tikhonov.zip

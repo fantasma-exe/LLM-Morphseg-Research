@@ -1,0 +1,6 @@
+defaults:
+  - morphology_json
+
+data_paths:
+  train: data/train_sample.json
+  val: data/val_sample.json

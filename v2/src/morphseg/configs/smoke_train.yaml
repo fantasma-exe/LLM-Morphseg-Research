@@ -1,7 +1,0 @@
-defaults:
-  - train
-  - _self_
-  - override logger:     csv
-  - override datamodule: smoke
-  - override trainer:    smoke
-  - override model:      smoke

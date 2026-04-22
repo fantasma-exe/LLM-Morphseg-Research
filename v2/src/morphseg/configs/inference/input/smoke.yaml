@@ -1,2 +1,0 @@
-_target_: morphseg.inference.input.FileInput
-input_path: data/val_sample.json
