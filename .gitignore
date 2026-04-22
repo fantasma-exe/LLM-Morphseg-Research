@@ -29,7 +29,7 @@ cluster_results/
 .cache
 scripts/
 tools/
-model/
+/model/
 data/
 logs/
 tikhonov.zip

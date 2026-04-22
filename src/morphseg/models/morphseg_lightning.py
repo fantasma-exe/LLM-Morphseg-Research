@@ -111,7 +111,6 @@ class MorphSegModule(L.LightningModule):
             quantization_config=bnb_cfg,
             trust_remote_code=self.model_cfg.trust_remote_code,
             dtype=torch_dtype,
-            # attn_implementation=self.model_cfg.attn_implementation,
         )
 
         if bnb_cfg is not None:
