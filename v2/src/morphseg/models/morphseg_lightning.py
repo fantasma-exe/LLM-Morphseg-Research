@@ -1,5 +1,7 @@
 import hydra
 import torch
+import gc
+import copy
 
 import pytorch_lightning as L
 import typing as tp
@@ -76,7 +78,7 @@ class MorphSegModule(L.LightningModule):
 
         self.save_hyperparameters(logger=False)
 
-        self.model_cfg = model_cfg
+        self.model_cfg = copy.deepcopy(model_cfg)
         self.log_cfg = log_cfg
         self.optimizer_cfg = optimizer_cfg
         self.scheduler_cfg = scheduler_cfg
@@ -91,7 +93,9 @@ class MorphSegModule(L.LightningModule):
         torch_dtype = dtype_map.get(self.model_cfg.torch_dtype, torch.float32)
 
         bnb_cfg = None
-        if quantization_cfg is not None and quantization_cfg.get("enabled", False):
+        if quantization_cfg is not None and quantization_cfg.get(
+            "use_quantization", False
+        ):
             quant_kwargs = dictconfig_to_dict(quantization_cfg)
             quant_kwargs.pop("enabled", None)
 
@@ -107,6 +111,7 @@ class MorphSegModule(L.LightningModule):
             quantization_config=bnb_cfg,
             trust_remote_code=self.model_cfg.trust_remote_code,
             dtype=torch_dtype,
+            attn_implementation=self.model_cfg.attn_implementation,
         )
 
         if bnb_cfg is not None:
@@ -114,6 +119,10 @@ class MorphSegModule(L.LightningModule):
 
         lora = LoraConfig(**dictconfig_to_dict(lora_cfg))
         self.model = get_peft_model(self.model, lora)
+
+        if self.model_cfg.get("use_grad_checkpointing", False):
+            self.model.gradient_checkpointing_enable()  # type: ignore
+            self.model.enable_input_require_grads()  # type: ignore
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -181,11 +190,12 @@ class MorphSegModule(L.LightningModule):
 
         self.log(
             "train/loss",
-            loss,
+            loss.detach(),
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
         )
+
+        self._log_memory("train")
 
         return loss
 
@@ -216,7 +226,7 @@ class MorphSegModule(L.LightningModule):
             )
 
         val_loss = outputs.loss
-        self.log("val/loss", val_loss, prog_bar=True, on_epoch=True)
+        self.log("val/loss", val_loss.detach(), prog_bar=True, on_epoch=True)
 
         if batch_idx < self.log_cfg.limit_val_batches:
             prompt_raw_text = batch["prompt_raw_text"]
@@ -259,6 +269,8 @@ class MorphSegModule(L.LightningModule):
                 {"preds": clean_preds, "golds": clean_golds}
             )
 
+            self._log_memory("val")
+
     def on_validation_epoch_end(self) -> None:
         if not self.validation_step_outputs:
             return
@@ -297,6 +309,10 @@ class MorphSegModule(L.LightningModule):
         self.log_dict(metrics, prog_bar=True)
 
         self.validation_step_outputs.clear()
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def on_save_checkpoint(self, checkpoint: dict[str, tp.Any]) -> None:
         """
@@ -351,3 +367,10 @@ class MorphSegModule(L.LightningModule):
                 **ss,
             },
         }
+
+    def _log_memory(self, mode: tp.Literal["train", "val"]) -> None:
+        allocated = torch.cuda.memory_allocated() / (1024**3)
+        reserved = torch.cuda.memory_reserved() / (1024**3)
+
+        self.log(f"debug/{mode}/vram_allocated", allocated, on_step=True)
+        self.log(f"debug/{mode}/vram_reserved", reserved, on_step=True)

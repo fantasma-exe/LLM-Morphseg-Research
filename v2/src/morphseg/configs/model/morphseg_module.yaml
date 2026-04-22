@@ -5,13 +5,16 @@ model_cfg:
   torch_dtype: bf16
   trust_remote_code: true
   max_tokens_val_generation: 96
+  attn_implementation: flash_attention_2
+  use_grad_checkpointing: true
+
 
 log_cfg:
   limit_val_batches: 5
   num_print_sample: 3
 
 quantization_cfg:
-  enabled: true
+  use_quantization: true
   load_in_4bit: true
   bnb_4bit_compute_dtype: bf16
   bnb_4bit_quant_type: nf4
