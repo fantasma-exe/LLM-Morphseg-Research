@@ -83,6 +83,7 @@ class MorphSegModule(L.LightningModule):
         self.optimizer_cfg = optimizer_cfg
         self.scheduler_cfg = scheduler_cfg
         self.scheduler_settings = scheduler_settings
+        self.training_step_cnt = 0
 
         dtype_map = {
             "bf16": torch.bfloat16,
@@ -178,6 +179,7 @@ class MorphSegModule(L.LightningModule):
         torch.Tensor
             Computed training loss.
         """
+        self.training_step_cnt += 1
 
         outputs = self(
             batch["input_ids"],
@@ -195,6 +197,10 @@ class MorphSegModule(L.LightningModule):
         )
 
         self._log_memory("train")
+
+        if self.training_step_cnt % self.model_cfg.clean_memory_every_n_step == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
 
         return loss
 

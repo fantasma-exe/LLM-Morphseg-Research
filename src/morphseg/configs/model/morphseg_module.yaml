@@ -4,8 +4,9 @@ model_cfg:
   model_name: hf-internal-testing/tiny-random-LlamaForCausalLM
   torch_dtype: bf16
   trust_remote_code: true
-  max_tokens_val_generation: 96
+  max_tokens_val_generation: 156
   use_grad_checkpointing: true
+  clean_memory_every_n_step: 150
 
 log_cfg:
   limit_val_batches: 5

@@ -1,36 +1,18 @@
 _target_: morphseg.datamodules.MorphologyDataModule
 
 data_paths:
-  train: data/train.jsonl
-  val: data/val.jsonl
+  train: data/soft-clean-oov/train.jsonl
+  val: data/soft-clean-oov/val.jsonl
 
 cache_dir: .cache/tokenized
 
 prompt_template: |
-  ### Инструкция:
-  Вы — эксперт-лингвист. Ваша задача — выполнить морфемный разбор слова, следуя принципам словаря Тихонова. 
+  ### Instruction:
+  You are a linguistic expert. Segment the word into morphemes strictly following the format 
+  'morpheme:TYPE/morpheme:TYPE'. Output ONLY the segmentation.
 
-  ### Алгоритм анализа:
-  1. Деривационный поиск: Найдите производящее слово (например, подоконник <- окно).
-  2. Критерий Винокура: Выделяйте морфемы только если их значение мотивировано связью с исходной основой.
-  3. Детализация: Делите слово максимально подробно, включая интерфиксы (:LINK) и постфиксы (:POST).
-  4. Историзм: Выделяйте этимологические корни, даже если связь с современным значением неочевидна.
-
-  ### Правила написания:
-  - Корень: :ROOT, Приставка: :PREF, Суффикс: :SUFF, Окончание: :END, Соединительная гласная: :LINK, Постфикс: :POST, Дефис: :HYPN.
-  - Мягкий знак после корня относится к корню.
-  - Сохраняйте буквенный состав слова без изменений.
-
-  ### Примеры разбора:
-  - Слово: вспетушиться
-    Ответ: вс:PREF/петуш:ROOT/и:SUFF/ть:END/ся:POST
-  - Слово: грязно-зеленый
-    Ответ: гряз:ROOT/н:SUFF/о:LINK/-:HYPN/зелен:ROOT/ый:END
-
-  ### Слово для анализа:
-  {word}
-
-  ### Ответ:
+  ### Word: {word}
+  ### Answer:
 
 tokenizer_header_cfg:
   truncation: true

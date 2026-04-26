@@ -2,5 +2,5 @@ defaults:
   - morphology_json
 
 data_paths:
-  train: data/train_sample.json
-  val: data/val_sample.json
+  train: data/dirty-oov/train_sample.json
+  val: data/dirty-oov/val_sample.json
