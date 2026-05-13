@@ -21,8 +21,8 @@ def train(cfg: DictConfig) -> None:
         The expected configuration structure and available options are
         defined in ``configs/train.yaml``.
     """
-    
-    mp.set_start_method('spawn', force=True)
+
+    mp.set_start_method("spawn", force=True)
 
     print(OmegaConf.to_yaml(cfg))
 

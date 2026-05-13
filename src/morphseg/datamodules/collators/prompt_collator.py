@@ -24,7 +24,7 @@ class DataCollatorContainingPrompt(DataCollatorForSeq2Seq):
     dict
         A batch dictionary produced by ``DataCollatorForSeq2Seq`` with
         an additional key:
-        
+
         - ``"prompt_raw_text"`` : list of str
             The raw prompt texts corresponding to each example in the batch,
             preserved in the original order.
@@ -41,15 +41,27 @@ class DataCollatorContainingPrompt(DataCollatorForSeq2Seq):
     ``"prompt_raw_text"``. Missing values will result in an error to
     prevent silent data inconsistency.
     """
-    
+
+    def _clear_features(self, features, feature_name: str) -> list[str]:
+        batch = [f.pop(feature_name, None) for f in features]
+        batch_clear = [p for p in batch if p is not None]
+
+        if len(batch_clear) != len(batch):
+            raise RuntimeError(
+                f"Invalid batch in data collator: before clear={len(batch)}, after clear={len(batch_clear)}"
+            )
+
+        return batch
+
     def __call__(self, features):
-        batch_prompts = [f.pop("prompt_raw_text", None) for f in features]
-        batch_prompts_clear = [p for p in batch_prompts if p is not None]
-        
-        if len(batch_prompts_clear) != len(batch_prompts):
-            raise RuntimeError("Invalid batch in data collator")
-        
+        batch_prompts = self._clear_features(features, "prompt_raw_text")
+        batch_words = self._clear_features(features, "word")
+        batch_targets = self._clear_features(features, "target")
+
         batch = super().__call__(features)
-        batch["prompt_raw_text"] = batch_prompts
-        
+
+        batch["prompt_raw_texts"] = batch_prompts
+        batch["words"] = batch_words
+        batch["targets"] = batch_targets
+
         return batch

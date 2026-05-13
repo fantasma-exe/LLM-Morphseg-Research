@@ -8,7 +8,10 @@ from datasets import load_dataset, load_from_disk
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
 
-from morphseg.utils import dictconfig_to_dict, get_datamodule_hash
+from morphseg.utils import (
+    dictconfig_to_dict,
+    get_datamodule_hash,
+)
 
 
 class MorphologyDataModule(L.LightningDataModule):
@@ -16,7 +19,7 @@ class MorphologyDataModule(L.LightningDataModule):
     PyTorch Lightning DataModule for morphological segmentation tasks.
 
     This module loads datasets from JSON files, applies tokenization using a
-    provided tokenizer, caches the tokenized dataset to disk, and prepares PyTorch DataLoaders 
+    provided tokenizer, caches the tokenized dataset to disk, and prepares PyTorch DataLoaders
     for training and validation.
 
     Parameters
@@ -26,7 +29,7 @@ class MorphologyDataModule(L.LightningDataModule):
 
     data_paths : omegaconf.DictConfig
         Mapping of dataset splits to file paths (e.g., {"train": ..., "val": ...}).
-        
+
     cache_dir : str
         Base directory where tokenized datasets will be cached.
 
@@ -51,7 +54,7 @@ class MorphologyDataModule(L.LightningDataModule):
 
     collator_cfg : omegaconf.DictConfig | None, default=None
         Hydra config for instantiating a data collator.
-        
+
     logic_version : str
         Version of datamodule implementation.
     """
@@ -64,11 +67,10 @@ class MorphologyDataModule(L.LightningDataModule):
         prompt_template: str,
         train_dataloader_cfg: DictConfig,
         val_dataloader_cfg: DictConfig,
-        tokenizer_header_cfg: DictConfig,
-        tokenizer_target_cfg: DictConfig,
-        num_proc: int = 1,
+        tokenizer_prompt_cfg: DictConfig,
+        tokenizer_full_text_cfg: DictConfig,
         collator_cfg: DictConfig | None = None,
-        logic_version: str = "v2_version"
+        logic_version: str = "v2_version",
     ) -> None:
         super().__init__()
 
@@ -76,16 +78,17 @@ class MorphologyDataModule(L.LightningDataModule):
 
         self.tokenizer = tokenizer
         self.prompt_template = prompt_template
-        self.num_proc = num_proc
         self.logic_version = logic_version
 
         self.data_files = dictconfig_to_dict(data_paths, resolve=True)
-        self.tokenizer_header_kwargs = dictconfig_to_dict(tokenizer_header_cfg)
-        self.tokenizer_target_kwargs = dictconfig_to_dict(tokenizer_target_cfg)
+        self.tokenizer_prompt_kwargs = dictconfig_to_dict(tokenizer_prompt_cfg)
+        self.tokenizer_full_text_kwargs = dictconfig_to_dict(tokenizer_full_text_cfg)
         self.train_cfg = dictconfig_to_dict(train_dataloader_cfg)
         self.val_cfg = dictconfig_to_dict(val_dataloader_cfg)
-        
-        self.cache_id = get_datamodule_hash(self.data_files, tokenizer.name_or_path, self.prompt_template, logic_version)
+
+        self.cache_id = get_datamodule_hash(
+            self.data_files, tokenizer.name_or_path, self.prompt_template, logic_version
+        )
         self.cache_dir = os.path.join(cache_dir, self.cache_id)
 
         if collator_cfg is not None:
@@ -94,7 +97,7 @@ class MorphologyDataModule(L.LightningDataModule):
             )
         else:
             self.data_collator = None
-            
+
     def _tokenize_fn(self, example: dict[str, str]) -> dict:
         """
         Tokenize a single dataset example.
@@ -117,47 +120,65 @@ class MorphologyDataModule(L.LightningDataModule):
             - labels : list[int]
             - attention_mask : list[int]
         """
-        
-        header_text = f"{self.tokenizer.bos_token}{self.prompt_template.format(word=example['input'])}"
-        target_text = f"{example['output']}{self.tokenizer.eos_token}"
 
-        header_ids = self.tokenizer(
-            header_text,
-            **self.tokenizer_header_kwargs,
-        )["input_ids"]
-        target_ids = self.tokenizer(
-            target_text,
-            **self.tokenizer_target_kwargs,
-        )["input_ids"]
+        word, target = example["input"].strip(), example["output"].strip()
+        prompt_text = self.prompt_template.format(word=word).strip()
+        full_text = f"{prompt_text} {target}"
 
-        input_ids = header_ids + target_ids  # type: ignore
-        labels = [-100] * len(header_ids) + target_ids  # type:ignore
-        attention_mask = [1] * len(input_ids)
+        tokenized = self.tokenizer(
+            full_text,
+            add_special_tokens=True,
+            return_tensors=None,
+            **self.tokenizer_full_text_kwargs,
+        )
+        input_ids = tokenized["input_ids"]
+        input_ids_len = len(input_ids)  # type: ignore
+        attention_mask = tokenized["attention_mask"]
+
+        prompt_tokens_ids = self.tokenizer(
+            prompt_text,
+            add_special_tokens=False,
+            return_tensors=None,
+            **self.tokenizer_prompt_kwargs,
+        )["input_ids"]
+        prompt_tokens_len = len(prompt_tokens_ids)  # type: ignore
+
+        target_start = None
+        for i in range(input_ids_len - prompt_tokens_len + 1):
+            if input_ids[i : i + prompt_tokens_len] == prompt_tokens_ids:  # type: ignore
+                target_start = i + prompt_tokens_len
+                break
+        if target_start is None:
+            target_start = prompt_tokens_len + 1
+
+        labels = [-100] * target_start + input_ids[target_start:]  # type: ignore
 
         return {
             "input_ids": input_ids,
             "labels": labels,
             "attention_mask": attention_mask,
-            "prompt_raw_text": header_text,
+            "prompt_raw_text": prompt_text,
+            "word": word,
+            "target": target,
         }
-        
+
     def prepare_data(self) -> None:
         """
         Preprocess and cache the dataset.
         """
-        
+
         if os.path.exists(self.cache_dir):
             return
-        
+
         raw_dataset = load_dataset("json", data_files=self.data_files)
-        
+
         tokenized_dataset = raw_dataset.map(
             self._tokenize_fn,
             remove_columns=raw_dataset["train"].column_names,
-            num_proc=self.num_proc,
+            num_proc=0,
             desc="Tokenizing dataset",
         )
-        
+
         tokenized_dataset.save_to_disk(self.cache_dir)
 
     def setup(self, stage: str | None = None) -> None:
@@ -180,7 +201,6 @@ class MorphologyDataModule(L.LightningDataModule):
             self.train_ds = tokenized_dataset["train"]
             if "val" in tokenized_dataset:
                 self.val_ds = tokenized_dataset["val"]
-
 
     def train_dataloader(self) -> DataLoader:
         """

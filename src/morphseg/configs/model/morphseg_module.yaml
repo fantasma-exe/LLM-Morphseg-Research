@@ -4,7 +4,7 @@ model_cfg:
   model_name: hf-internal-testing/tiny-random-LlamaForCausalLM
   torch_dtype: bf16
   trust_remote_code: true
-  max_tokens_val_generation: 156
+  max_tokens_val_generation: 128
   use_grad_checkpointing: true
   clean_memory_every_n_step: 150
 
@@ -21,14 +21,14 @@ quantization_cfg:
 
 optimizer_cfg:
   _target_: bitsandbytes.optim.PagedAdamW8bit
-  lr: 2e-4
+  lr: 1e-4
   betas: [0.9, 0.999]
   weight_decay: 0.01
 
 scheduler_cfg:
   _target_: morphseg.scheduler.build_scheduler
   total_steps: ${trainer.max_epochs}
-  warmup_ratio: 0.1
+  warmup_ratio: 0.15
 
   scheduler_cfg:
     _target_: torch.optim.lr_scheduler.SequentialLR
@@ -58,6 +58,5 @@ lora_cfg:
     - q_proj
     - k_proj
     - v_proj
-    - o_proj
   bias: none
   task_type: CAUSAL_LM

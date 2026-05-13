@@ -1,30 +1,37 @@
 _target_: morphseg.datamodules.MorphologyDataModule
 
 data_paths:
-  train: data/soft-clean-oov/train.jsonl
-  val: data/soft-clean-oov/val.jsonl
+  train: data/soft-clean-oov/ru/tikhonov/train.jsonl
+  val: data/soft-clean-oov/ru/tikhonov/val.jsonl
 
 cache_dir: .cache/tokenized
 
 prompt_template: |
   ### Instruction:
-  You are a linguistic expert. Segment the word into morphemes strictly following the format 
-  'morpheme:TYPE/morpheme:TYPE'. Output ONLY the segmentation.
+  Вы — эксперт-лингвист. Ваша задача — выполнить морфемный разбор слова по словарю Тихонова.
+
+  ### Output Format:
+  - Ответ должен быть в формате: морфема1:ТЕГ1/морфема2:ТЕГ2
+  - Пример: пере:PREF/ход:ROOT/н:SUFF/ый:END
+  - Используйте теги: :ROOT, :PREF, :SUFF, :END, :LINK, :POST, :HYPN.
+
+  ### Constraints:
+  - Строго сохраняйте буквенный состав слова.
+  - Мягкий знак (ь) после корня всегда относится к корню (:ROOT).
+  - Не добавляйте пояснений, только строку разбора.
 
   ### Word: {word}
-  ### Answer:
+  ### Response:
 
-tokenizer_header_cfg:
+tokenizer_prompt_cfg:
   truncation: true
-  max_length: 256
+  max_length: 800
   padding: false
-  add_special_tokens: false
 
-tokenizer_target_cfg:
+tokenizer_full_text_cfg:
   truncation: true
-  max_length: 128
+  max_length: 900
   padding: false
-  add_special_tokens: false
 
 train_dataloader_cfg:
   batch_size: 8
@@ -34,13 +41,11 @@ train_dataloader_cfg:
   persistent_workers: true
 
 val_dataloader_cfg:
-  batch_size: 16
+  batch_size: 8
   shuffle: false
   num_workers: 4
   pin_memory: true
   persistent_workers: true
-
-num_proc: 0
 
 collator_cfg:
   _target_: morphseg.datamodules.DataCollatorContainingPrompt
@@ -48,4 +53,4 @@ collator_cfg:
   label_pad_token_id: -100
   return_tensors: "pt"
 
-logic_version: v2_version
+logic_version: v3_version

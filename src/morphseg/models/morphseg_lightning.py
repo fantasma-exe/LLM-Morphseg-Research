@@ -11,11 +11,7 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedTokenizer
 
 from morphseg.utils import (
-    char_accuracy,
-    morpheme_f1,
-    morpheme_precision,
-    morpheme_recall,
-    word_accuracy,
+    MorphemeMetrics,
     dictconfig_to_dict,
 )
 
@@ -115,14 +111,20 @@ class MorphSegModule(L.LightningModule):
         )
 
         if bnb_cfg is not None:
-            self.model = prepare_model_for_kbit_training(self.model)
+            self.model = prepare_model_for_kbit_training(
+                self.model,
+                use_gradient_checkpointing=self.model_cfg.get(
+                    "use_grad_checkpointing", False
+                ),
+            )
 
         lora = LoraConfig(**dictconfig_to_dict(lora_cfg))
         self.model = get_peft_model(self.model, lora)
 
-        if self.model_cfg.get("use_grad_checkpointing", False):
+        if bnb_cfg is None and self.model_cfg.get("use_grad_checkpointing", False):
             self.model.gradient_checkpointing_enable()  # type: ignore
-            self.model.enable_input_require_grads()  # type: ignore
+            if hasattr(self.model, "enable_input_require_grads"):
+                self.model.enable_input_require_grads()  # type: ignore
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -153,7 +155,7 @@ class MorphSegModule(L.LightningModule):
         """
 
         return self.model(
-            input_ids,
+            input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
         )
@@ -179,21 +181,23 @@ class MorphSegModule(L.LightningModule):
         torch.Tensor
             Computed training loss.
         """
+
         self.training_step_cnt += 1
 
         outputs = self(
-            batch["input_ids"],
-            batch["attention_mask"],
-            batch["labels"],
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            labels=batch["labels"],
         )
 
         loss = outputs.loss
 
         self.log(
             "train/loss",
-            loss.detach(),
+            loss.item(),
             prog_bar=True,
             on_step=True,
+            on_epoch=True,
         )
 
         self._log_memory("train")
@@ -221,27 +225,25 @@ class MorphSegModule(L.LightningModule):
             Index of the current batch.
         """
 
-        input_ids = batch["input_ids"]
-        labels = batch["labels"]
-        attention_mask = batch["attention_mask"]
-
         with torch.inference_mode():
             outputs = self(
-                input_ids=input_ids, labels=labels, attention_mask=attention_mask
+                input_ids=batch["input_ids"],
+                labels=batch["labels"],
+                attention_mask=batch["attention_mask"],
             )
 
         val_loss = outputs.loss
-        self.log("val/loss", val_loss.detach(), prog_bar=True, on_epoch=True)
+        self.log("val/loss", val_loss.item(), prog_bar=True, on_epoch=True)
 
         if batch_idx < self.log_cfg.limit_val_batches:
-            prompt_raw_text = batch["prompt_raw_text"]
+            prompt_raw_texts = batch["prompt_raw_texts"]
 
             self.tokenizer.padding_side = "left"
             prompt_encodings = self.tokenizer(
-                prompt_raw_text,
+                prompt_raw_texts,
                 return_tensors="pt",
-                padding=True,
-                add_special_tokens=False,
+                padding="longest",
+                add_special_tokens=True,
             ).to(self.model.device)  # type: ignore
             self.tokenizer.padding_side = "right"
 
@@ -255,26 +257,20 @@ class MorphSegModule(L.LightningModule):
                 )
 
             gen_only = generated_ids[:, prompt_encodings["input_ids"].shape[1] :]  # type: ignore
-
             preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
 
-            labels_for_decode = torch.where(
-                labels != -100,
-                labels,
-                torch.tensor(self.tokenizer.pad_token_id, device=labels.device),
-            )
-            golds = self.tokenizer.batch_decode(
-                labels_for_decode, skip_special_tokens=True
-            )
-
             clean_preds = [p.split("\n")[0].strip() for p in preds]
-            clean_golds = [g.strip() for g in golds]
-
+            clean_targets = [t.strip() for t in batch["targets"]]
+            print(f"== CLEAN PREDS == {clean_preds}")
             self.validation_step_outputs.append(
-                {"preds": clean_preds, "golds": clean_golds}
+                {
+                    "preds": clean_preds,
+                    "targets": clean_targets,
+                    "words": batch["words"],
+                }
             )
 
-            self._log_memory("val")
+        self._log_memory("val")
 
     def on_validation_epoch_end(self) -> None:
         if not self.validation_step_outputs:
@@ -283,36 +279,24 @@ class MorphSegModule(L.LightningModule):
         all_preds = [
             p for batch in self.validation_step_outputs for p in batch["preds"]
         ]
-        all_golds = [
-            g for batch in self.validation_step_outputs for g in batch["golds"]
+        all_targets = [
+            t for batch in self.validation_step_outputs for t in batch["targets"]
+        ]
+        all_words = [
+            w for batch in self.validation_step_outputs for w in batch["words"]
         ]
 
         print("\n" + "=" * 50)
         print(f"Epoch {self.current_epoch + 1} - Sample Generations")
         for i in range(min(self.log_cfg.num_print_sample, len(all_preds))):
-            print(f"Target : {all_golds[i]}")
+            print(f"Target : {all_targets[i]}")
             print(f"Predict: {all_preds[i]}")
             print("-" * 50)
 
-        metrics = {
-            "morpheme_precision_full": morpheme_precision(all_preds, all_golds),
-            "morpheme_recall_full": morpheme_recall(all_preds, all_golds),
-            "morpheme_f1_full": morpheme_f1(all_preds, all_golds),
-            "morpheme_precision_root": morpheme_precision(
-                all_preds, all_golds, allowed_types={"ROOT"}
-            ),
-            "morpheme_recall_root": morpheme_recall(
-                all_preds, all_golds, allowed_types={"ROOT"}
-            ),
-            "morpheme_f1_root": morpheme_f1(
-                all_preds, all_golds, allowed_types={"ROOT"}
-            ),
-            "char_level_accuracy": char_accuracy(all_preds, all_golds),
-            "word_accuracy": word_accuracy(all_preds, all_golds),
-        }
+        metric_calculator = MorphemeMetrics()
+        metrics = metric_calculator.compute(all_preds, all_targets, all_words)
 
         self.log_dict(metrics, prog_bar=True)
-
         self.validation_step_outputs.clear()
 
         gc.collect()
@@ -356,8 +340,16 @@ class MorphSegModule(L.LightningModule):
             params=self.parameters(),
         )
 
+        if self.trainer.max_steps != -1:
+            total_steps = self.trainer.max_steps
+        else:
+            total_steps = self.trainer.estimated_stepping_batches
+
         scheduler = hydra.utils.call(
-            self.scheduler_cfg, optimizer=optimizer, _recursive_=False
+            self.scheduler_cfg,
+            optimizer=optimizer,
+            total_steps=total_steps,
+            _recursive_=False,
         )
 
         if self.scheduler_settings is None:
@@ -377,5 +369,7 @@ class MorphSegModule(L.LightningModule):
         allocated = torch.cuda.memory_allocated() / (1024**3)
         reserved = torch.cuda.memory_reserved() / (1024**3)
 
-        self.log(f"debug/{mode}/vram_allocated", allocated, on_step=True)
-        self.log(f"debug/{mode}/vram_reserved", reserved, on_step=True)
+        self.log(
+            f"debug/{mode}/vram_allocated", allocated, on_step=True, on_epoch=False
+        )
+        self.log(f"debug/{mode}/vram_reserved", reserved, on_step=True, on_epoch=False)

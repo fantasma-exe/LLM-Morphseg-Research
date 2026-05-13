@@ -1,345 +1,121 @@
-from typing import Iterable
-
-
-def _parse(seg: str) -> list[str]:
-    """
-    Split a segmented word into morpheme units.
-
-    Parameters
-    ----------
-    seg : str
-        Morphologically segmented string with '/' as separator.
-
-    Returns
-    -------
-    list[str]
-        List of morpheme strings.
-    """
-
-    return [ss for s in seg.split("/") if (ss := s.strip())]
-
-
-def _flatten_to_char_tags(seg: str) -> list[tuple[str, str]]:
-    """
-    Parse a string in the format 'morph:TYPE/morph:TYPE' into a list of (character, type) pairs.
-
-    Parameters
-    ----------
-    seg : str
-        A string representing the segmentation, where each token is in the form 'word:TAG',
-        and tokens are separated by slashes.
-
-    Returns
-    -------
-    list[tuple[str, str]]
-        A list of tuples, each containing a character from the token and its associated tag.
-
-    Examples
-    --------
-    'миг:ROOT' -> [('м', 'ROOT'), ('и', 'ROOT'), ('г', 'ROOT')]
-    """
-
-    result = []
-    parts = [p.strip() for p in seg.split("/") if p.strip()]
-
-    for part in parts:
-        if ":" in part:
-            token, tag = part.rsplit(":", 1)
-        else:
-            token = part
-            tag = "UNKNOWN"
-
-        for char in token:
-            result.append((char, tag))
-
-    return result
-
-
-def char_accuracy(preds: Iterable[str], golds: Iterable[str]) -> float:
-    """
-    Compute character-level accuracy.
-
-    A character-level accuracy score is calculated by comparing each character and its associated
-    tag between predicted and gold segmentations. The score is the fraction of characters with
-    correct tags and correct character predictions.
-
-    Parameters
-    ----------
-    preds : Iterable[str]
-        An iterable of predicted segmentations.
-    golds : Iterable[str]
-        An iterable of gold segmentations.
-
-    Returns
-    -------
-    float
-        The fraction of correctly predicted characters with the correct tags.
-
-    Notes
-    -----
-    A correct character prediction requires both the character and its tag to match the gold
-    segmentation. If there are multiple characters or tokens, they will be compared individually.
-
-    Examples
-    --------
-    preds = ['миг:ROOT']
-    golds = ['миг:ROOT']
-    char_accuracy(preds, golds) -> 1.0
-    """
-
-    correct_chars = 0
-    total_chars = 0
-
-    for p_str, g_str in zip(preds, golds):
-        p_seq = _flatten_to_char_tags(p_str)
-        g_seq = _flatten_to_char_tags(g_str)
-
-        max_len = max(len(p_seq), len(g_seq))
-
-        for i in range(max_len):
-            if i < len(p_seq) and i < len(g_seq):
-                p_char, p_tag = p_seq[i]
-                g_char, g_tag = g_seq[i]
-
-                if p_char == g_char and p_tag == g_tag:
-                    correct_chars += 1
-
-            total_chars += 1
-
-    return correct_chars / total_chars if total_chars > 0 else 0.0
-
-
-def word_accuracy(preds: Iterable[str], golds: Iterable[str]) -> float:
-    """
-    Compute word-level accuracy.
-
-    A prediction is considered correct if the entire predicted
-    segmentation exactly matches the gold segmentation.
-
-    Parameters
-    ----------
-    preds : Iterable[str]
-        Predicted segmentations.
-    golds : Iterable[str]
-        Gold segmentations.
-
-    Returns
-    -------
-    float
-        Fraction of exactly matched words.
-    """
-
-    preds = list(preds)
-    golds = list(golds)
-    assert len(preds) == len(golds)
-
-    correct = sum(p == g for p, g in zip(preds, golds))
-    return correct / len(golds) if golds else 0.0
-
-
-def _filter_morphemes(
-    morphemes: Iterable[str],
-    allowed_types: set[str] | None,
-) -> set[str]:
-    """
-    Filter morphemes by their type.
-
-    Morpheme type is inferred from the suffix after ':'.
-
-    Parameters
-    ----------
-    morphemes : Iterable[str]
-        Morpheme strings in the form 'form:TYPE'.
-    allowed_types : set[str] | None
-        Set of allowed morpheme types. If None, all morphemes are kept.
-
-    Returns
-    -------
-    set[str]
-        Filtered set of morphemes.
-    """
-
-    result = set()
-    for m in morphemes:
-        if ":" not in m:
-            continue
-        _, m_type = m.rsplit(":", 1)
-        if allowed_types is not None:
-            if m_type in allowed_types:
-                result.add(m)
-        else:
-            result.add(m)
-    return result
-
-
-def _morpheme_stats_single(
-    pred: str,
-    gold: str,
-    *,
-    allowed_types: set[str] | None = None,
-) -> tuple[int, int, int]:
-    """
-    Compute morpheme-level true positives, false positives and false negatives
-    for a single prediction-gold pair.
-
-    Parameters
-    ----------
-    pred : str
-        Predicted segmentation.
-    gold : str
-        Gold segmentation.
-    allowed_types : set[str] | None, optional
-        Morpheme types to include in evaluation.
-
-    Returns
-    -------
-    tuple[int, int, int]
-        (tp, fp, fn) counts for the given example.
-    """
-
-    p = _filter_morphemes(_parse(pred), allowed_types)
-    g = _filter_morphemes(_parse(gold), allowed_types)
-
-    tp = len(p & g)
-    fp = len(p - g)
-    fn = len(g - p)
-
-    return tp, fp, fn
-
-
-def _morpheme_stats(
-    preds: Iterable[str],
-    golds: Iterable[str],
-    *,
-    allowed_types: set[str] | None = None,
-) -> tuple[int, int, int]:
-    """
-    Aggregate morpheme-level true positives, false positives and false negatives
-    over a dataset (micro-averaging).
-
-    Parameters
-    ----------
-    preds : Iterable[str]
-        Predicted segmentations.
-    golds : Iterable[str]
-        Gold segmentations.
-    allowed_types : set[str] | None, optional
-        Morpheme types to include in evaluation.
-
-    Returns
-    -------
-    tuple[int, int, int]
-        Aggregated (tp, fp, fn) counts.
-    """
-
-    tp = fp = fn = 0
-
-    for p, g in zip(preds, golds):
-        tpi, fpi, fni = _morpheme_stats_single(p, g, allowed_types=allowed_types)
-        tp += tpi
-        fp += fpi
-        fn += fni
-
-    return tp, fp, fn
-
-
-def morpheme_precision(
-    preds: Iterable[str],
-    golds: Iterable[str],
-    *,
-    allowed_types: set[str] | None = None,
-) -> float:
-    """
-    Compute morpheme-level precision (micro-averaged).
-
-    Precision = TP / (TP + FP).
-
-    Parameters
-    ----------
-    preds : Iterable[str]
-        Predicted segmentations.
-    golds : Iterable[str]
-        Gold segmentations.
-    allowed_types : set[str] | None, optional
-        Morpheme types to include in evaluation.
-
-    Returns
-    -------
-    float
-        Morpheme-level precision.
-    """
-
-    tp, fp, _ = _morpheme_stats(preds, golds, allowed_types=allowed_types)
-
-    if tp + fp == 0:
-        return 0.0
-
-    return tp / (tp + fp)
-
-
-def morpheme_recall(
-    preds: Iterable[str],
-    golds: Iterable[str],
-    *,
-    allowed_types: set[str] | None = None,
-) -> float:
-    """
-    Compute morpheme-level recall (micro-averaged).
-
-    Recall = TP / (TP + FN).
-
-    Parameters
-    ----------
-    preds : Iterable[str]
-        Predicted segmentations.
-    golds : Iterable[str]
-        Gold segmentations.
-    allowed_types : Optional[Set[str]], optional
-        Morpheme types to include in evaluation.
-
-    Returns
-    -------
-    float
-        Morpheme-level recall.
-    """
-
-    tp, _, fn = _morpheme_stats(preds, golds, allowed_types=allowed_types)
-
-    if tp + fn == 0:
-        return 0.0
-
-    return tp / (tp + fn)
-
-
-def morpheme_f1(
-    preds: Iterable[str],
-    golds: Iterable[str],
-    *,
-    allowed_types: set[str] | None = None,
-) -> float:
-    """
-    Compute morpheme-level F1 score (micro-averaged).
-
-    F1 = 2 * TP / (2 * TP + FP + FN).
-
-    Parameters
-    ----------
-    preds : Iterable[str]
-        Predicted segmentations.
-    golds : Iterable[str]
-        Gold segmentations.
-    allowed_types : set[str] | None, optional
-        Morpheme types to include in evaluation.
-
-    Returns
-    -------
-    float
-        Morpheme-level F1 score.
-    """
-
-    tp, fp, fn = _morpheme_stats(preds, golds, allowed_types=allowed_types)
-
-    if tp == 0:
-        return 0.0
-
-    return 2 * tp / (2 * tp + fp + fn)
+from collections import defaultdict
+from typing import Any
+
+
+class MorphemeMetrics:
+    def __init__(self, allowed_types: set[str] | None = None):
+        self.allowed_types = allowed_types or {
+            "ROOT",
+            "PREF",
+            "SUFF",
+            "END",
+            "LINK",
+            "POST",
+            "HYPN",
+        }
+
+    def _parse_to_spans(
+        self, prediction: str, original_word: str
+    ) -> tuple[list[tuple[int, int, list[str]]], bool]:
+        if not prediction or not isinstance(prediction, str):
+            return [], False
+
+        parts = prediction.split("/")
+        spans = []
+        current_idx = 0
+        reconstructed = ""
+
+        for part in parts:
+            if ":" not in part:
+                continue
+            morpheme, tag = part.rsplit(":", 1)
+            start = current_idx
+            end = current_idx + len(morpheme)
+            spans.append((start, end, tag))
+            current_idx = end
+            reconstructed += morpheme
+
+        is_hallucination = reconstructed != original_word
+        return spans, is_hallucination
+
+    def compute(
+        self, preds: list[str], targets: list[str], words: list[str]
+    ) -> dict[str, Any]:
+        stats = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+
+        total_word_acc = 0
+        total_char_acc = 0
+        hallucinations_count = 0
+
+        for p_str, t_str, word in zip(preds, targets, words):
+            p_spans, is_halluc = self._parse_to_spans(p_str, word)
+            t_spans, _ = self._parse_to_spans(t_str, word)
+
+            if is_halluc:
+                hallucinations_count += 1
+
+            if p_str == t_str:
+                total_word_acc += 1
+
+            total_char_acc += self._calculate_char_accuracy(p_spans, t_spans, len(word))
+
+            self._update_span_stats(p_spans, t_spans, stats)
+
+        results = {}
+
+        full_p, full_r, full_f1 = self._get_f1(stats["_all_"])
+        results.update(
+            {
+                "morpheme_precision_full": full_p,
+                "morpheme_recall_full": full_r,
+                "morpheme_f1_full": full_f1,
+            }
+        )
+
+        for m_type in self.allowed_types:
+            p, r, f1 = self._get_f1(stats[m_type])
+            results[f"morpheme_f1_{m_type.lower()}"] = f1
+
+        n = len(words) if words else 1
+        results["word_accuracy"] = total_word_acc / n
+        results["char_level_accuracy"] = total_char_acc / n
+        results["hallucination_rate"] = hallucinations_count / n
+
+        return results
+
+    def _update_span_stats(self, p_spans, t_spans, stats):
+        p_set = set(p_spans)
+        t_set = set(t_spans)
+
+        stats["_all_"]["tp"] += len(p_set & t_set)
+        stats["_all_"]["fp"] += len(p_set - t_set)
+        stats["_all_"]["fn"] += len(t_set - p_set)
+
+        for m_type in self.allowed_types:
+            p_filtered = {s for s in p_set if s[2] == m_type}
+            t_filtered = {s for s in t_set if s[2] == m_type}
+            stats[m_type]["tp"] += len(p_filtered & t_filtered)
+            stats[m_type]["fp"] += len(p_filtered - t_filtered)
+            stats[m_type]["fn"] += len(t_filtered - p_filtered)
+
+    def _calculate_char_accuracy(self, p_spans, t_spans, length):
+        if length == 0:
+            return 0
+
+        p_mask = [""] * length
+        t_mask = [""] * length
+
+        for s, e, t in p_spans:
+            p_mask[max(0, s) : min(length, e)] = [t] * (min(length, e) - max(0, s))
+        for s, e, t in t_spans:
+            t_mask[max(0, s) : min(length, e)] = [t] * (min(length, e) - max(0, s))
+
+        correct = sum(1 for p, t in zip(p_mask, t_mask) if p == t)
+
+        return correct / length
+
+    def _get_f1(self, s):
+        p = s["tp"] / (s["tp"] + s["fp"]) if (s["tp"] + s["fp"]) > 0 else 0
+        r = s["tp"] / (s["tp"] + s["fn"]) if (s["tp"] + s["fn"]) > 0 else 0
+        f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
+        return p, r, f1
