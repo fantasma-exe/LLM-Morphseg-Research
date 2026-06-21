@@ -12,22 +12,16 @@ After cloning the repository, ensure all required libraries and dependencies are
 uv sync
 ```
 
-This will automatically install the necessary packages for both training and inference.
+This will automatically install the necessary packages for both training and testing.
 
 ## Test Run
 
 To verify that the pipeline is functioning correctly, execute the command below:
 
 ```bash
-uv run do-train --config-name smoke_train
+./scripts/smoke_run.sh
 ```
 
-After it you can test inference: change checkpoint path in `configs/inference/loader/local.yaml` confing, then execute this command:
-
-```bash
-uv run run-inference --config-name smoke_inference
-```
-
-If the scripts complete successfully, the pipeline is operational and ready for further experiments.
+If the script complete successfully, the pipeline is operational and ready for further experiments.
 
 **Note**: execute all comands from dir root.

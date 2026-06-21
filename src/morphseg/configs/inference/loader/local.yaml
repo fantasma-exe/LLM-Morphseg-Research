@@ -1,2 +1,0 @@
-_target_: morphseg.inference.loaders.LocalCheckpointLoader
-checkpoint_path: outputs/train/2026-04-13/17-14-58/checkpoints/last.ckpt

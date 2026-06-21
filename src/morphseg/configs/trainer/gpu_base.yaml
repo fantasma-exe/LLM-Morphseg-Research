@@ -2,18 +2,19 @@ _target_: pytorch_lightning.Trainer
 
 callbacks:
   - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-    monitor: morpheme_f1_full
-    mode: max
+    monitor: val_loss
+    mode: min
     save_top_k: 2
-    dirpath: ${paths.output_dir}/checkpoints               
-    filename: best-{epoch:02d}-{morpheme_f1_full:.3f}
-    save_last: true                 
-    every_n_epochs: 1                 
+    dirpath: ${run.dir}/checkpoints               
+    filename: "{epoch:02d}-{val_loss:.4f}"
+    save_last: true
+    every_n_epochs: 1
+    save_on_train_epoch_end: true               
 
   - _target_: pytorch_lightning.callbacks.EarlyStopping
-    monitor: morpheme_f1_full
-    patience: 5
-    mode: max
+    monitor: val_loss
+    patience: 3
+    mode: min
 
   - _target_: pytorch_lightning.callbacks.LearningRateMonitor
     logging_interval: step
@@ -23,11 +24,12 @@ callbacks:
 max_epochs: 7
 accelerator: gpu
 devices: auto
+enable_progress_bar: true
 
 precision: bf16-mixed
 accumulate_grad_batches: 4
 
-limit_val_batches: 0.5
+limit_val_batches: 1.0
 log_every_n_steps: 10
-val_check_interval: 0.25
+val_check_interval: 1.0
 gradient_clip_val: 1.0

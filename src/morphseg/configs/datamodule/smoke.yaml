@@ -2,5 +2,15 @@ defaults:
   - morphology_json
 
 data_paths:
-  train: data/dirty-oov/ru/tikhonov/train_sample.json
-  val: data/dirty-oov/ru/tikhonov/val_sample.json
+  train: data/dirty-oov/ru/tikhonov/smoke_train.jsonl
+  val: data/dirty-oov/ru/tikhonov/smoke_val.jsonl
+
+train_dataloader_cfg:
+  batch_size: 8
+  shuffle: true
+  num_workers: 1
+
+val_dataloader_cfg:
+  batch_size: 8
+  shuffle: false
+  num_workers: 1

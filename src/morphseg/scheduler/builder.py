@@ -10,40 +10,6 @@ def build_scheduler(
     total_steps: int,
     warmup_ratio: float = 0.1,
 ) -> torch.optim.lr_scheduler.LRScheduler:
-    """
-    Instantiate a learning rate scheduler with support for complex sequential strategies.
-
-    This builder handles both simple schedulers and multi-stage pipelines (like
-    SequentialLR). If a sequential scheduler is detected, it automatically
-    calculates and injects duration parameters (warmup steps, T_max, and
-    milestones) based on the provided total steps and warmup ratio.
-
-    Parameters
-    ----------
-    optimizer : torch.optim.Optimizer
-        The optimizer for which to schedule the learning rate.
-
-    schedulers_cfg : omegaconf.DictConfig
-        Hydra configuration object.
-
-    total_steps : int
-        The total number of training steps (iterations).
-
-    warmup_ratio : float, default=0.1
-        The fraction of total steps to be used for the linear warmup phase.
-        Must be between in [0, 1].
-
-    Returns
-    -------
-    torch.optim.lr_scheduler._LRScheduler
-        The instantiated PyTorch learning rate scheduler.
-
-    Notes
-    -----
-    When using `SequentialLR`, the function assumes the first scheduler in the
-    list is the Warmup phase (`LinearLR`) and the second one is the main
-    decay phase (e.g., `CosineAnnealingLR`).
-    """
     if not (0 <= warmup_ratio <= 1):
         raise ValueError("Ratio must be in [0, 1] range.")
 

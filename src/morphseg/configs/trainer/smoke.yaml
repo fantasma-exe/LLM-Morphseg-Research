@@ -1,8 +1,9 @@
 defaults:
   - gpu_base
 
-max_epochs: 3
-limit_train_batches: 3
-limit_val_batches: 2
+max_epochs: 2
+log_every_n_steps: 1
+limit_train_batches: 2
+limit_val_batches: 1
+val_check_interval: 1.0
 accelerator: cpu
-devices: auto

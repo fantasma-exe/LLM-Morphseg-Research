@@ -1,3 +1,3 @@
-from .prompt_collator import DataCollatorContainingPrompt
+from .prompt_collator import DataCollatorForValidation
 
-__all__ = ["DataCollatorContainingPrompt"]
+__all__ = ["DataCollatorForValidation"]

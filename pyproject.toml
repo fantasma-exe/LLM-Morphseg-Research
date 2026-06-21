@@ -34,5 +34,4 @@ packages = ["src/morphseg"]
 
 [project.scripts]
 do-train = "morphseg.cli:train"
-run-inference = "morphseg.cli:inference"
-
+run-test = "morphseg.cli:test"

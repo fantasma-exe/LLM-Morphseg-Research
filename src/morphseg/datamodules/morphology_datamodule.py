@@ -4,9 +4,10 @@ import os
 import pytorch_lightning as L
 
 from omegaconf import DictConfig
-from datasets import load_dataset, load_from_disk
+from datasets import load_dataset, load_from_disk, DatasetDict
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer
+from functools import partial
 
 from morphseg.utils import (
     dictconfig_to_dict,
@@ -15,50 +16,6 @@ from morphseg.utils import (
 
 
 class MorphologyDataModule(L.LightningDataModule):
-    """
-    PyTorch Lightning DataModule for morphological segmentation tasks.
-
-    This module loads datasets from JSON files, applies tokenization using a
-    provided tokenizer, caches the tokenized dataset to disk, and prepares PyTorch DataLoaders
-    for training and validation.
-
-    Parameters
-    ----------
-    tokenizer : transformers.PreTrainedTokenizer
-        Tokenizer used to encode input and target texts.
-
-    data_paths : omegaconf.DictConfig
-        Mapping of dataset splits to file paths (e.g., {"train": ..., "val": ...}).
-
-    cache_dir : str
-        Base directory where tokenized datasets will be cached.
-
-    prompt_template : str
-        Template string used to construct the input prompt. Should contain
-        a placeholder for the input word (e.g., "{word}").
-
-    train_dataloader_cfg : omegaconf.DictConfig
-        Hydra сonfiguration for the training DataLoader.
-
-    val_dataloader_cfg : omegaconf.DictConfig
-        Hydra сonfiguration for the validation DataLoader.
-
-    tokenizer_header_cfg : omegaconf.DictConfig
-        Tokenizer arguments for encoding the input (prompt).
-
-    tokenizer_target_cfg : omegaconf.DictConfig
-        Tokenizer arguments for encoding the target output.
-
-    num_proc : int, default=1
-        Number of processes used for dataset preprocessing.
-
-    collator_cfg : omegaconf.DictConfig | None, default=None
-        Hydra config for instantiating a data collator.
-
-    logic_version : str
-        Version of datamodule implementation.
-    """
-
     def __init__(
         self,
         tokenizer: PreTrainedTokenizer,
@@ -69,7 +26,8 @@ class MorphologyDataModule(L.LightningDataModule):
         val_dataloader_cfg: DictConfig,
         tokenizer_prompt_cfg: DictConfig,
         tokenizer_full_text_cfg: DictConfig,
-        collator_cfg: DictConfig | None = None,
+        train_collator_cfg: DictConfig,
+        val_collator_cfg: DictConfig,
         logic_version: str = "v2_version",
     ) -> None:
         super().__init__()
@@ -87,148 +45,158 @@ class MorphologyDataModule(L.LightningDataModule):
         self.val_cfg = dictconfig_to_dict(val_dataloader_cfg)
 
         self.cache_id = get_datamodule_hash(
-            self.data_files, tokenizer.name_or_path, self.prompt_template, logic_version
+            self.data_files,
+            tokenizer.name_or_path,
+            self.prompt_template,
+            self.logic_version,
         )
         self.cache_dir = os.path.join(cache_dir, self.cache_id)
 
-        if collator_cfg is not None:
-            self.data_collator = hydra.utils.instantiate(
-                collator_cfg, tokenizer=self.tokenizer
-            )
-        else:
-            self.data_collator = None
-
-    def _tokenize_fn(self, example: dict[str, str]) -> dict:
-        """
-        Tokenize a single dataset example.
-
-        Constructs the input sequence as:
-            [BOS] + formatted prompt + target + [EOS]
-
-        Parameters
-        ----------
-        example : dict[str, str]
-            Dictionary with keys:
-            - "input": source word
-            - "output": target segmentation
-
-        Returns
-        -------
-        dict
-            Dictionary containing:
-            - input_ids : list[int]
-            - labels : list[int]
-            - attention_mask : list[int]
-        """
-
-        word, target = example["input"].strip(), example["output"].strip()
-        prompt_text = self.prompt_template.format(word=word).strip()
-        full_text = f"{prompt_text} {target}"
-
-        tokenized = self.tokenizer(
-            full_text,
-            add_special_tokens=True,
-            return_tensors=None,
-            **self.tokenizer_full_text_kwargs,
+        self.train_collator = hydra.utils.instantiate(
+            train_collator_cfg,
+            tokenizer=self.tokenizer,
         )
-        input_ids = tokenized["input_ids"]
-        input_ids_len = len(input_ids)  # type: ignore
-        attention_mask = tokenized["attention_mask"]
+        self.val_collator = hydra.utils.instantiate(
+            val_collator_cfg, tokenizer=self.tokenizer
+        )
 
-        prompt_tokens_ids = self.tokenizer(
+    def _tokenize_train(self, example: dict[str, str]) -> dict:
+        word, target = example["input"].lstrip(), example["output"].strip()
+
+        prompt_text = self.prompt_template.format(word=word)
+        prompt_part = f"{self.tokenizer.bos_token}{prompt_text}"
+
+        tokenized_prompt = self.tokenizer(
             prompt_text,
             add_special_tokens=False,
-            return_tensors=None,
             **self.tokenizer_prompt_kwargs,
-        )["input_ids"]
-        prompt_tokens_len = len(prompt_tokens_ids)  # type: ignore
+        )
 
-        target_start = None
-        for i in range(input_ids_len - prompt_tokens_len + 1):
-            if input_ids[i : i + prompt_tokens_len] == prompt_tokens_ids:  # type: ignore
-                target_start = i + prompt_tokens_len
-                break
-        if target_start is None:
-            target_start = prompt_tokens_len + 1
+        full_text = f"{prompt_part}{target}{self.tokenizer.eos_token}"
 
-        labels = [-100] * target_start + input_ids[target_start:]  # type: ignore
+        tokenized_full = self.tokenizer(
+            full_text,
+            add_special_tokens=False,
+            **self.tokenizer_full_text_kwargs,
+        )
+
+        input_ids = tokenized_full["input_ids"]
+        prompt_len = len(tokenized_prompt["input_ids"])  # type: ignore
+        labels = [-100] * prompt_len + input_ids[prompt_len:]  # type: ignore
 
         return {
             "input_ids": input_ids,
             "labels": labels,
-            "attention_mask": attention_mask,
-            "prompt_raw_text": prompt_text,
-            "word": word,
+            "attention_mask": tokenized_full["attention_mask"],
+        }
+
+    def _tokenize_validation(self, example: dict[str, str]) -> dict:
+        word, target = example["input"].lstrip(), example["output"].strip()
+
+        prompt_text = self.prompt_template.format(word=word)
+        prompt_part = f"{self.tokenizer.bos_token}{prompt_text}"
+
+        tokenized_prompt = self.tokenizer(
+            prompt_part,
+            add_special_tokens=False,
+            **self.tokenizer_prompt_kwargs,
+        )
+
+        return {
+            **tokenized_prompt,
             "target": target,
+            "word": word,
         }
 
     def prepare_data(self) -> None:
-        """
-        Preprocess and cache the dataset.
-        """
-
         if os.path.exists(self.cache_dir):
             return
 
         raw_dataset = load_dataset("json", data_files=self.data_files)
 
-        tokenized_dataset = raw_dataset.map(
-            self._tokenize_fn,
+        train_dataset = raw_dataset["train"].map(
+            self._tokenize_train,
             remove_columns=raw_dataset["train"].column_names,
-            num_proc=0,
-            desc="Tokenizing dataset",
+            desc="Tokenizing train dataset",
+        )
+        val_dataset = raw_dataset["val"].map(
+            self._tokenize_validation,
+            remove_columns=raw_dataset["val"].column_names,
+            desc="Tokenizing validation dataset",
+        )
+
+        raw_dataset["train"] = train_dataset
+        raw_dataset["val"] = val_dataset
+
+        tokenized_dataset = DatasetDict(
+            {
+                "train": train_dataset,
+                "val": val_dataset,
+            }
         )
 
         tokenized_dataset.save_to_disk(self.cache_dir)
 
     def setup(self, stage: str | None = None) -> None:
-        """
-        Load and preprocess datasets.
-
-        This method loads JSON datasets using Hugging Face Datasets, applies
-        tokenization, and prepares train and validation splits.
-
-        Parameters
-        ----------
-        stage : str | None, default=None
-            Stage identifier used by Lightning ("fit", "validate", etc.).
-            If None, all relevant datasets are prepared.
-        """
-
         tokenized_dataset = load_from_disk(self.cache_dir)
 
-        if stage == "fit" or stage is None:
+        if stage == "fit" or stage == "test":
             self.train_ds = tokenized_dataset["train"]
-            if "val" in tokenized_dataset:
-                self.val_ds = tokenized_dataset["val"]
+            self.val_ds = tokenized_dataset["val"]
 
     def train_dataloader(self) -> DataLoader:
-        """
-        Create the training DataLoader.
-
-        Returns
-        -------
-        torch.utils.data.DataLoader
-            DataLoader for the training dataset.
-        """
-
-        return DataLoader(
+        train_dl = DataLoader(
             self.train_ds,  # type: ignore
-            collate_fn=self.data_collator,
+            collate_fn=partial(
+                collate_fn,
+                tokenizer=self.tokenizer,
+                collator=self.train_collator,
+                padding_side="right",
+            ),
             **self.train_cfg,
         )
 
-    def val_dataloader(self) -> DataLoader | None:
-        """
-        Create the validation DataLoader.
+        return train_dl
 
-        Returns
-        -------
-        torch.utils.data.DataLoader | None
-            DataLoader for the validation dataset.
-        """
+    def val_dataloader(self) -> list[DataLoader]:
+        loss_dl = DataLoader(
+            self.train_ds,  # type:ignore
+            collate_fn=partial(
+                collate_fn,
+                tokenizer=self.tokenizer,
+                collator=self.train_collator,
+                padding_side="right",
+            ),
+            **self.val_cfg,
+        )
+        gen_dl = DataLoader(
+            self.val_ds,  # type: ignore
+            collate_fn=partial(
+                collate_fn,
+                tokenizer=self.tokenizer,
+                collator=self.val_collator,
+                padding_side="left",
+            ),
+            **self.val_cfg,
+        )
 
-        if not hasattr(self, "val_ds"):
-            return None
+        return [loss_dl, gen_dl]
 
-        return DataLoader(self.val_ds, collate_fn=self.data_collator, **self.val_cfg)  # type:ignore
+    def test_dataloader(self) -> DataLoader:
+        test_dl = DataLoader(
+            self.val_ds,  # type: ignore
+            collate_fn=partial(
+                collate_fn,
+                tokenizer=self.tokenizer,
+                collator=self.val_collator,
+                padding_side="left",
+            ),
+            **self.val_cfg,
+        )
+
+        return test_dl
+
+
+def collate_fn(batch, tokenizer, collator, padding_side):
+    tokenizer.padding_side = padding_side
+    return collator(batch)

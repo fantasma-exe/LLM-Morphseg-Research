@@ -7,21 +7,18 @@ data_paths:
 cache_dir: .cache/tokenized
 
 prompt_template: |
-  ### Instruction:
+  <Instruction>
   Вы — эксперт-лингвист. Ваша задача — выполнить морфемный разбор слова по словарю Тихонова.
 
-  ### Output Format:
+  <Output Format>
   - Ответ должен быть в формате: морфема1:ТЕГ1/морфема2:ТЕГ2
   - Пример: пере:PREF/ход:ROOT/н:SUFF/ый:END
   - Используйте теги: :ROOT, :PREF, :SUFF, :END, :LINK, :POST, :HYPN.
+  
+  <Word>
+  {word}
 
-  ### Constraints:
-  - Строго сохраняйте буквенный состав слова.
-  - Мягкий знак (ь) после корня всегда относится к корню (:ROOT).
-  - Не добавляйте пояснений, только строку разбора.
-
-  ### Word: {word}
-  ### Response:
+  <Response>
 
 tokenizer_prompt_cfg:
   truncation: true
@@ -34,23 +31,29 @@ tokenizer_full_text_cfg:
   padding: false
 
 train_dataloader_cfg:
-  batch_size: 8
+  batch_size: 4
   shuffle: true
-  num_workers: 4
+  num_workers: 11
   pin_memory: true
   persistent_workers: true
 
 val_dataloader_cfg:
-  batch_size: 8
+  batch_size: 4
   shuffle: false
-  num_workers: 4
+  num_workers: 11
   pin_memory: true
   persistent_workers: true
 
-collator_cfg:
-  _target_: morphseg.datamodules.DataCollatorContainingPrompt
+val_collator_cfg:
+  _target_: morphseg.datamodules.DataCollatorForValidation
   padding: "longest"
   label_pad_token_id: -100
   return_tensors: "pt"
 
-logic_version: v3_version
+train_collator_cfg:
+  _target_: transformers.DataCollatorForSeq2Seq
+  padding: "longest"
+  label_pad_token_id: -100
+  return_tensors: "pt"
+
+logic_version: v6_version

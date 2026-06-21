@@ -8,6 +8,7 @@ import typing as tp
 
 from omegaconf import DictConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from torch.optim import Optimizer
 from transformers import AutoModelForCausalLM, BitsAndBytesConfig, PreTrainedTokenizer
 
 from morphseg.utils import (
@@ -17,48 +18,6 @@ from morphseg.utils import (
 
 
 class MorphSegModule(L.LightningModule):
-    """
-    PyTorch Lightning module for training a causal language model with optional
-    quantization and LoRA parameter-efficient fine-tuning.
-
-    The module loads a pretrained transformer model from Hugging Face, optionally
-    applies quantization using BitsAndBytes, prepares the model for k-bit training
-    when required, and injects LoRA adapters using PEFT. Optimizer and scheduler
-    are instantiated from Hydra configuration during training.
-
-    Parameters
-    ----------
-    model_cfg : DictConfig
-        Hydra configuration describing how the base Hugging Face model should be
-        loaded (e.g. model name, dtype, trust_remote_code flag).
-
-    log_cfg : DictConfig
-        Hydra configuration that controls when and what to log.
-
-    quantization_cfg : DictConfig | None
-        Optional configuration used to construct a ``BitsAndBytesConfig`` that
-        controls model quantization. If enabled, this configuration is passed to
-        ``AutoModelForCausalLM.from_pretrained``. If disabled or ``None``, the
-        model is loaded without quantization.
-
-    optimizer_cfg : DictConfig
-        Hydra configuration used to instantiate the optimizer.
-
-    scheduler_cfg : DictConfig
-        Hydra configuration used to instantiate the learning rate scheduler.
-
-    scheduler_settings : DictConfig
-        Additional Lightning scheduler configuration (e.g. interval, frequency,
-        monitor).
-
-    lora_cfg : DictConfig
-        Configuration for PEFT LoRA adapters (rank, alpha, dropout, target modules,
-        etc.).
-
-    tokenizer : PreTrainedTokenizer
-        Hugging Face tokenizer used for preprocessing and generation.
-    """
-
     def __init__(
         self,
         model_cfg: DictConfig,
@@ -69,6 +28,7 @@ class MorphSegModule(L.LightningModule):
         optimizer_cfg: DictConfig | None = None,
         scheduler_cfg: DictConfig | None = None,
         scheduler_settings: DictConfig | None = None,
+        ckpt_path: str | None = None,
     ) -> None:
         super().__init__()
 
@@ -76,6 +36,7 @@ class MorphSegModule(L.LightningModule):
 
         self.model_cfg = copy.deepcopy(model_cfg)
         self.log_cfg = log_cfg
+        self.lora_cfg = dictconfig_to_dict(lora_cfg)
         self.optimizer_cfg = optimizer_cfg
         self.scheduler_cfg = scheduler_cfg
         self.scheduler_settings = scheduler_settings
@@ -118,7 +79,7 @@ class MorphSegModule(L.LightningModule):
                 ),
             )
 
-        lora = LoraConfig(**dictconfig_to_dict(lora_cfg))
+        lora = LoraConfig(**self.lora_cfg)
         self.model = get_peft_model(self.model, lora)
 
         if bnb_cfg is None and self.model_cfg.get("use_grad_checkpointing", False):
@@ -126,34 +87,21 @@ class MorphSegModule(L.LightningModule):
             if hasattr(self.model, "enable_input_require_grads"):
                 self.model.enable_input_require_grads()  # type: ignore
 
+        if ckpt_path is not None:
+            ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+            missing, unexpected = self.load_state_dict(ckpt["state_dict"], strict=False)
+            print(
+                f"Missing params: {len(missing)}, Unexpected params: {len(unexpected)}"
+            )
+
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
         self.tokenizer = tokenizer
         self.validation_step_outputs = []
+        self.test_step_outputs = []
 
     def forward(self, input_ids, attention_mask, labels=None) -> tp.Any:
-        """
-        Forward pass through the language model.
-
-        Parameters
-        ----------
-        input_ids : torch.Tensor
-            Token IDs of shape `(batch_size, sequence_length)`.
-
-        attention_mask : torch.Tensor
-            Attention mask indicating valid tokens.
-
-        labels : torch.Tensor, optional
-            Target token IDs for language modeling. If provided,
-            the model will compute and return the loss.
-
-        Returns
-        -------
-        typing.Any
-            Model output containing logits and optionally the loss.
-        """
-
         return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -161,27 +109,6 @@ class MorphSegModule(L.LightningModule):
         )
 
     def training_step(self, batch, batch_idx) -> tp.Any:
-        """
-        Perform a single training step.
-
-        Parameters
-        ----------
-        batch : dict
-            Batch containing:
-
-            - input_ids : torch.Tensor
-            - attention_mask : torch.Tensor
-            - labels : torch.Tensor
-
-        batch_idx : int
-            Index of the current batch.
-
-        Returns
-        -------
-        torch.Tensor
-            Computed training loss.
-        """
-
         self.training_step_cnt += 1
 
         outputs = self(
@@ -196,81 +123,61 @@ class MorphSegModule(L.LightningModule):
             "train/loss",
             loss.item(),
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
+            batch_size=batch["input_ids"].size(0),
         )
 
         self._log_memory("train")
 
-        if self.training_step_cnt % self.model_cfg.clean_memory_every_n_step == 0:
+        if self.training_step_cnt % self.model_cfg.clean_memory_every_nsteps == 0:
             gc.collect()
             torch.cuda.empty_cache()
 
         return loss
 
-    def validation_step(self, batch, batch_idx) -> None:
-        """
-        Perform a single validation step.
-
-        Parameters
-        ----------
-        batch : dict
-            Batch containing:
-
-            - input_ids : torch.Tensor
-            - attention_mask : torch.Tensor
-            - labels : torch.Tensor
-
-        batch_idx : int
-            Index of the current batch.
-        """
-
-        with torch.inference_mode():
+    def validation_step(self, batch, batch_idx, dataloader_idx) -> None:
+        if dataloader_idx == 0:
             outputs = self(
                 input_ids=batch["input_ids"],
                 labels=batch["labels"],
                 attention_mask=batch["attention_mask"],
             )
 
-        val_loss = outputs.loss
-        self.log("val/loss", val_loss.item(), prog_bar=True, on_epoch=True)
+            val_loss = outputs.loss
 
-        if batch_idx < self.log_cfg.limit_val_batches:
-            prompt_raw_texts = batch["prompt_raw_texts"]
+            self.log(
+                "val_loss",
+                val_loss.item(),
+                prog_bar=True,
+                on_epoch=True,
+                batch_size=batch["input_ids"].size(0),
+                add_dataloader_idx=False,
+            )
 
-            self.tokenizer.padding_side = "left"
-            prompt_encodings = self.tokenizer(
-                prompt_raw_texts,
-                return_tensors="pt",
-                padding="longest",
-                add_special_tokens=True,
-            ).to(self.model.device)  # type: ignore
-            self.tokenizer.padding_side = "right"
+            self._log_memory("val", postfix="_loss")
 
-            with torch.inference_mode():
-                generated_ids = self.model.generate(
-                    input_ids=prompt_encodings["input_ids"],
-                    attention_mask=prompt_encodings["attention_mask"],
-                    max_new_tokens=self.model_cfg.max_tokens_val_generation,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id,
-                )
+        elif (self.current_epoch + 1) % self.log_cfg.val_every_nepochs == 0 or (
+            self.current_epoch + 1
+        ) == self.log_cfg.max_epochs:
+            gen_data = self._generate(batch)
 
-            gen_only = generated_ids[:, prompt_encodings["input_ids"].shape[1] :]  # type: ignore
-            preds = self.tokenizer.batch_decode(gen_only, skip_special_tokens=True)  # type: ignore
-
+            preds = self.tokenizer.batch_decode(gen_data, skip_special_tokens=True)
             clean_preds = [p.split("\n")[0].strip() for p in preds]
-            clean_targets = [t.strip() for t in batch["targets"]]
-            print(f"== CLEAN PREDS == {clean_preds}")
+
             self.validation_step_outputs.append(
                 {
                     "preds": clean_preds,
-                    "targets": clean_targets,
-                    "words": batch["words"],
+                    "targets": batch["target"],
+                    "words": batch["word"],
                 }
             )
 
-        self._log_memory("val")
+            self._log_memory("val", postfix="_generation")
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def on_validation_epoch_end(self) -> None:
         if not self.validation_step_outputs:
@@ -296,45 +203,14 @@ class MorphSegModule(L.LightningModule):
         metric_calculator = MorphemeMetrics()
         metrics = metric_calculator.compute(all_preds, all_targets, all_words)
 
-        self.log_dict(metrics, prog_bar=True)
+        self.log_dict(metrics, prog_bar=True, on_step=False, on_epoch=True)
         self.validation_step_outputs.clear()
 
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def on_save_checkpoint(self, checkpoint: dict[str, tp.Any]) -> None:
-        """
-        Modify the checkpoint before saving so that it contains only LoRA weights.
-
-        This hook filters the ``state_dict`` and keeps only parameters whose names
-        contain the substring ``"lora"``. All other model weights are removed.
-        As a result, the saved checkpoint stores only the LoRA adapter parameters,
-        which significantly reduces checkpoint size and allows later loading
-        on top of the base pretrained model.
-
-        Parameters
-        ----------
-        checkpoint : dict[str, Any]
-            The checkpoint dictionary created by PyTorch Lightning during saving.
-            The ``state_dict`` entry is modified in-place to keep only LoRA weights.
-        """
-
-        checkpoint["state_dict"] = {
-            k: v for k, v in checkpoint["state_dict"].items() if "lora" in k
-        }
-
     def configure_optimizers(self) -> tp.Any:
-        """
-        Instantiate optimizer and scheduler using Hydra configuration.
-
-        Returns
-        -------
-        dict
-            Dictionary compatible with PyTorch Lightning optimizer configuration.
-            Contains instantiated optimizer and learning rate scheduler.
-        """
-
         optimizer = hydra.utils.instantiate(
             self.optimizer_cfg,
             params=self.parameters(),
@@ -365,11 +241,82 @@ class MorphSegModule(L.LightningModule):
             },
         }
 
-    def _log_memory(self, mode: tp.Literal["train", "val"]) -> None:
+    def _log_memory(self, mode: tp.Literal["train", "val"], postfix: str = "") -> None:
         allocated = torch.cuda.memory_allocated() / (1024**3)
         reserved = torch.cuda.memory_reserved() / (1024**3)
 
         self.log(
-            f"debug/{mode}/vram_allocated", allocated, on_step=True, on_epoch=False
+            f"debug/{mode}/vram_allocated{postfix}",
+            allocated,
+            on_step=True,
+            on_epoch=False,
+            add_dataloader_idx=False,
         )
-        self.log(f"debug/{mode}/vram_reserved", reserved, on_step=True, on_epoch=False)
+        self.log(
+            f"debug/{mode}/vram_reserved{postfix}",
+            reserved,
+            on_step=True,
+            on_epoch=False,
+            add_dataloader_idx=False,
+        )
+
+    def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
+        trainable_grad_norm = [
+            p.grad.detach().norm(2) for p in self.parameters() if p.grad is not None
+        ]
+
+        if trainable_grad_norm:
+            total_norm = torch.norm(torch.stack(trainable_grad_norm), 2)
+
+            self.log("grad_norm_l2", total_norm.item(), on_step=True, on_epoch=False)
+
+    def _generate(self, batch):
+        input_ids = batch["input_ids"]
+
+        generated_ids = self.model.generate(
+            input_ids=input_ids,
+            attention_mask=batch["attention_mask"],
+            max_new_tokens=self.model_cfg.max_tokens_val_generation,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+            do_sample=False,
+            num_beams=1,
+        )
+
+        prompt_len = input_ids.shape[1]
+        gen_only = generated_ids[:, prompt_len:]
+
+        return gen_only
+
+    def test_step(self, batch, batch_idx) -> None:
+        gen_data = self._generate(batch)
+
+        preds = self.tokenizer.batch_decode(gen_data, skip_special_tokens=True)
+
+        clean_preds = [p.split("\n")[0].split(" ")[0].strip() for p in preds]
+
+        self.test_step_outputs.append(
+            {
+                "preds": clean_preds,
+                "targets": batch["target"],
+                "words": batch["word"],
+            }
+        )
+
+    def on_test_epoch_end(self) -> None:
+        if not self.test_step_outputs:
+            return
+
+        all_preds = [p for batch in self.test_step_outputs for p in batch["preds"]]
+        all_targets = [t for batch in self.test_step_outputs for t in batch["targets"]]
+        all_words = [w for batch in self.test_step_outputs for w in batch["words"]]
+
+        metric_calculator = MorphemeMetrics()
+        metrics = metric_calculator.compute(all_preds, all_targets, all_words)
+
+        metrics = {
+            f"test_{metric_name}": value for metric_name, value in metrics.items()
+        }
+
+        self.log_dict(metrics, prog_bar=True, on_step=False, on_epoch=True)
+        self.test_step_outputs.clear()

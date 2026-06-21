@@ -1,4 +1,4 @@
 from .morphology_datamodule import MorphologyDataModule
-from .collators import DataCollatorContainingPrompt
+from .collators import DataCollatorForValidation
 
-__all__ = ["MorphologyDataModule", "DataCollatorContainingPrompt"]
+__all__ = ["MorphologyDataModule", "DataCollatorForValidation"]

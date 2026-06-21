@@ -1,4 +1,5 @@
-from collections import defaultdict
+import numpy as np
+
 from typing import Any
 
 
@@ -16,7 +17,7 @@ class MorphemeMetrics:
 
     def _parse_to_spans(
         self, prediction: str, original_word: str
-    ) -> tuple[list[tuple[int, int, list[str]]], bool]:
+    ) -> tuple[list[tuple[int, int, str]], bool]:
         if not prediction or not isinstance(prediction, str):
             return [], False
 
@@ -28,6 +29,7 @@ class MorphemeMetrics:
         for part in parts:
             if ":" not in part:
                 continue
+
             morpheme, tag = part.rsplit(":", 1)
             start = current_idx
             end = current_idx + len(morpheme)
@@ -41,7 +43,8 @@ class MorphemeMetrics:
     def compute(
         self, preds: list[str], targets: list[str], words: list[str]
     ) -> dict[str, Any]:
-        stats = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+        stats = {m_type: [0, 0, 0] for m_type in self.allowed_types}
+        stats["_all_"] = [0, 0, 0]
 
         total_word_acc = 0
         total_char_acc = 0
@@ -57,29 +60,31 @@ class MorphemeMetrics:
             if p_str == t_str:
                 total_word_acc += 1
 
-            total_char_acc += self._calculate_char_accuracy(p_spans, t_spans, len(word))
+            word_len = len(word)
+            if word_len > 0:
+                total_char_acc += self._calculate_char_accuracy(
+                    p_spans, t_spans, word_len
+                )
 
             self._update_span_stats(p_spans, t_spans, stats)
 
         results = {}
-
-        full_p, full_r, full_f1 = self._get_f1(stats["_all_"])
-        results.update(
-            {
-                "morpheme_precision_full": full_p,
-                "morpheme_recall_full": full_r,
-                "morpheme_f1_full": full_f1,
-            }
-        )
-
-        for m_type in self.allowed_types:
-            p, r, f1 = self._get_f1(stats[m_type])
-            results[f"morpheme_f1_{m_type.lower()}"] = f1
+        for m_type, (tp, fp, fn) in stats.items():
+            p, r, f1 = self._calculate_f1_from_counts(tp, fp, fn)
+            suffix = "full" if m_type == "_all_" else m_type.lower()
+            results[f"morpheme_f1_{suffix}"] = f1
+            if m_type == "_all_":
+                results["morpheme_precision_full"] = p
+                results["morpheme_recall_full"] = r
 
         n = len(words) if words else 1
-        results["word_accuracy"] = total_word_acc / n
-        results["char_level_accuracy"] = total_char_acc / n
-        results["hallucination_rate"] = hallucinations_count / n
+        results.update(
+            {
+                "word_accuracy": total_word_acc / n,
+                "char_level_accuracy": total_char_acc / n,
+                "hallucination_rate": hallucinations_count / n,
+            }
+        )
 
         return results
 
@@ -87,35 +92,35 @@ class MorphemeMetrics:
         p_set = set(p_spans)
         t_set = set(t_spans)
 
-        stats["_all_"]["tp"] += len(p_set & t_set)
-        stats["_all_"]["fp"] += len(p_set - t_set)
-        stats["_all_"]["fn"] += len(t_set - p_set)
+        tp_all = p_set & t_set
+        stats["_all_"][0] += len(tp_all)
+        stats["_all_"][1] += len(p_set - t_set)
+        stats["_all_"][2] += len(t_set - p_set)
 
         for m_type in self.allowed_types:
             p_filtered = {s for s in p_set if s[2] == m_type}
             t_filtered = {s for s in t_set if s[2] == m_type}
-            stats[m_type]["tp"] += len(p_filtered & t_filtered)
-            stats[m_type]["fp"] += len(p_filtered - t_filtered)
-            stats[m_type]["fn"] += len(t_filtered - p_filtered)
+            stats[m_type][0] += len(p_filtered & t_filtered)
+            stats[m_type][1] += len(p_filtered - t_filtered)
+            stats[m_type][2] += len(t_filtered - p_filtered)
 
     def _calculate_char_accuracy(self, p_spans, t_spans, length):
-        if length == 0:
-            return 0
+        p_mask = np.full(length, -1, dtype=int)
+        t_mask = np.full(length, -1, dtype=int)
 
-        p_mask = [""] * length
-        t_mask = [""] * length
+        tag_to_id = {tag: i for i, tag in enumerate(self.allowed_types)}
 
         for s, e, t in p_spans:
-            p_mask[max(0, s) : min(length, e)] = [t] * (min(length, e) - max(0, s))
+            if t in tag_to_id:
+                p_mask[max(0, s) : min(length, e)] = tag_to_id[t]
         for s, e, t in t_spans:
-            t_mask[max(0, s) : min(length, e)] = [t] * (min(length, e) - max(0, s))
+            if t in tag_to_id:
+                t_mask[max(0, s) : min(length, e)] = tag_to_id[t]
 
-        correct = sum(1 for p, t in zip(p_mask, t_mask) if p == t)
+        return np.mean(p_mask == t_mask)
 
-        return correct / length
-
-    def _get_f1(self, s):
-        p = s["tp"] / (s["tp"] + s["fp"]) if (s["tp"] + s["fp"]) > 0 else 0
-        r = s["tp"] / (s["tp"] + s["fn"]) if (s["tp"] + s["fn"]) > 0 else 0
+    def _calculate_f1_from_counts(self, tp, fp, fn):
+        p = tp / (tp + fp) if (tp + fp) > 0 else 0
+        r = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
         return p, r, f1

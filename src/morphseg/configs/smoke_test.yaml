@@ -1,5 +1,5 @@
 defaults:
-  - train
+  - test
   - _self_
   - override datamodule: smoke
   - override trainer:    smoke
