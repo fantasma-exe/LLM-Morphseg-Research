@@ -21,7 +21,7 @@ class MorphologyDataModule(L.LightningDataModule):
         tokenizer: PreTrainedTokenizer,
         data_paths: DictConfig,
         cache_dir: str,
-        prompt_template: str,
+        prompt_template: DictConfig,
         train_dataloader_cfg: DictConfig,
         val_dataloader_cfg: DictConfig,
         tokenizer_prompt_cfg: DictConfig,
@@ -35,7 +35,7 @@ class MorphologyDataModule(L.LightningDataModule):
         self.save_hyperparameters(ignore=["tokenizer"])
 
         self.tokenizer = tokenizer
-        self.prompt_template = prompt_template
+        self.prompt_template = prompt_template.text
         self.logic_version = logic_version
 
         self.data_files = dictconfig_to_dict(data_paths, resolve=True)

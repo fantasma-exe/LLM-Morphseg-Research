@@ -1,3 +1,7 @@
+defaults:
+  - prompt_template: base_tikhonov
+  - _self_
+
 _target_: morphseg.datamodules.MorphologyDataModule
 
 data_paths:
@@ -5,20 +9,6 @@ data_paths:
   val: data/soft-clean-oov/ru/tikhonov/val.jsonl
 
 cache_dir: .cache/tokenized
-
-prompt_template: |
-  <Instruction>
-  Вы — эксперт-лингвист. Ваша задача — выполнить морфемный разбор слова по словарю Тихонова.
-
-  <Output Format>
-  - Ответ должен быть в формате: морфема1:ТЕГ1/морфема2:ТЕГ2
-  - Пример: пере:PREF/ход:ROOT/н:SUFF/ый:END
-  - Используйте теги: :ROOT, :PREF, :SUFF, :END, :LINK, :POST, :HYPN.
-  
-  <Word>
-  {word}
-
-  <Response>
 
 tokenizer_prompt_cfg:
   truncation: true

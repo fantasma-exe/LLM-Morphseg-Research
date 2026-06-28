@@ -91,7 +91,8 @@ class MorphSegModule(L.LightningModule):
             ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
             missing, unexpected = self.load_state_dict(ckpt["state_dict"], strict=False)
             print(
-                f"Missing params: {len(missing)}, Unexpected params: {len(unexpected)}"
+                f"Missing params: {len(missing)}, Unexpected params: {len(unexpected)}",
+                f"Keys: {unexpected[: min(50, len(unexpected))]}",
             )
 
         if tokenizer.pad_token is None:
@@ -107,6 +108,20 @@ class MorphSegModule(L.LightningModule):
             attention_mask=attention_mask,
             labels=labels,
         )
+
+    def on_load_checkpoint(self, checkpoint: dict[str, tp.Any]) -> None:
+        sd = checkpoint["state_dict"]
+        checkpoint["state_dict"] = {
+            k: v
+            for k, v in sd.items()
+            if not (
+                k.endswith(".absmax")
+                or k.endswith(".quant_map")
+                or ".quant_state." in k
+                or k.endswith(".nested_absmax")
+                or k.endswith(".nested_quant_map")
+            )
+        }
 
     def training_step(self, batch, batch_idx) -> tp.Any:
         self.training_step_cnt += 1

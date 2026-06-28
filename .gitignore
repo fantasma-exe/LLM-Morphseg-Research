@@ -27,7 +27,7 @@ mlruns/
 # Local data
 cluster_results/
 .cache
-scripts/
+scripts/*
 tools/
 /model/
 data/
@@ -36,3 +36,6 @@ tikhonov.zip
 outputs/
 *.ptk
 *.txt
+
+#exclude
+!scripts/smoke_run.sh

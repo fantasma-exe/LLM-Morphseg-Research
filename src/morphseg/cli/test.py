@@ -17,14 +17,14 @@ def test(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg))
 
     try:
-        best_ckpt_path = load_checkpoint_path(cfg.run_info_dir, "best_ckpt")
         run_info = load_json(str(Path(cfg.run_info_dir) / "run_info.json"))
-
         run_info["test"] = {
             "status": "running",
             "started_at": datetime.now().isoformat(),
             "test_run_dir": str(Path.cwd().absolute()),
         }
+
+        best_ckpt_path = load_checkpoint_path(cfg.run_info_dir, "best_ckpt")
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model.model_cfg.model_name)
 

@@ -48,6 +48,7 @@ def train(cfg: DictConfig) -> None:
             model=model,
             datamodule=datamodule,
             ckpt_path=cfg.training.resume_from_checkpoint,
+            weights_only=False,
         )
 
         run_info["train"]["status"] = "finished"
